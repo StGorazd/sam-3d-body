@@ -36,6 +36,7 @@ def main(args):
 
     # Initialize sam-3d-body model and other optional modules
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    print("Used device:", device)
     model, model_cfg = load_sam_3d_body(
         args.checkpoint_path, device=device, mhr_path=mhr_path
     )
@@ -83,6 +84,14 @@ def main(args):
             for image in glob(os.path.join(args.image_folder, ext))
         ]
     )
+    import json
+    class NumpyEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, np.float32):
+                return float(obj)
+            return super().default(obj)
 
     for image_path in tqdm(images_list):
         outputs = estimator.process_one_image(
@@ -90,6 +99,15 @@ def main(args):
             bbox_thr=args.bbox_thresh,
             use_mask=args.use_mask,
         )
+        outputs[0].pop("mask")
+        # for d in outputs:
+        #     for key, value in d.items():
+        #         print("----", key, "----")
+        #         print(value)
+
+        json_output_file = f"{output_folder}/{os.path.basename(image_path)[:-4]}.json"
+        with open(json_output_file, "w") as f:
+            f.write(json.dumps(outputs[0], cls=NumpyEncoder, indent=4))
 
         img = cv2.imread(image_path)
         rend_img = visualize_sample_together(img, outputs, estimator.faces)

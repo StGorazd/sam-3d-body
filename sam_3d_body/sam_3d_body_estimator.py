@@ -1,4 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+import os.path
 from typing import Optional, Union
 
 import cv2
@@ -94,6 +95,9 @@ class SAM3DBodyEstimator:
         self.image_embeddings = None
         self.output = None
         self.prev_prompt = []
+        image_file_name_mask = f"output/{os.path.basename(img)[:-4]}_mask.jpg"
+        image_file_name_bbox = f"output/{os.path.basename(img)[:-4]}_bbox.jpg"
+        image_file_name_depth = f"output/{os.path.basename(img)[:-4]}_depth.npy"
         torch.cuda.empty_cache()
 
         if type(img) == str:
@@ -119,6 +123,11 @@ class SAM3DBodyEstimator:
                 nms_thr=nms_thr,
                 default_to_full_image=False,
             )
+            img_with_box = img.copy()
+            x1, y1, x2, y2 = boxes[0].astype(int)
+            print(x1, y1, x2, y2)
+            cv2.rectangle(img_with_box, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.imwrite(image_file_name_bbox, img_with_box)
             print("Found boxes:", boxes)
             self.is_crop = True
         else:
@@ -149,7 +158,7 @@ class SAM3DBodyEstimator:
         elif use_mask and self.sam is not None:
             print("Running SAM to get mask from bbox...")
             # Generate masks using SAM2
-            masks, masks_score = self.sam.run_sam(img, boxes)
+            masks, masks_score = self.sam.run_sam(img, boxes, image_file_name_mask)
         else:
             masks, masks_score = None, None
 
@@ -169,7 +178,7 @@ class SAM3DBodyEstimator:
         elif self.fov_estimator is not None:
             print("Running FOV estimator ...")
             input_image = batch["img_ori"][0].data
-            cam_int = self.fov_estimator.get_cam_intrinsics(input_image).to(
+            cam_int = self.fov_estimator.get_cam_intrinsics(input_image, image_file_name_depth).to(
                 batch["img"]
             )
             batch["cam_int"] = cam_int.clone()

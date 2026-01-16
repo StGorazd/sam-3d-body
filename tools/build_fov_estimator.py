@@ -1,5 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-
+import numpy as np
 import torch
 
 
@@ -16,8 +16,8 @@ class FOVEstimator:
         else:
             raise NotImplementedError
 
-    def get_cam_intrinsics(self, img, **kwargs):
-        return self.fov_estimator_func(self.fov_estimator, img, self.device, **kwargs)
+    def get_cam_intrinsics(self, img, path, **kwargs):
+        return self.fov_estimator_func(self.fov_estimator, img, self.device, path, **kwargs)
 
 
 def load_moge(device, path=""):
@@ -29,7 +29,7 @@ def load_moge(device, path=""):
     return moge_model
 
 
-def run_moge(model, input_image, device):
+def run_moge(model, input_image, device, path):
     # We expect the image to be RGB already
     H, W, _ = input_image.shape
     input_image = torch.tensor(
@@ -39,8 +39,14 @@ def run_moge(model, input_image, device):
     # Infer w/ MoGe2
     moge_data = model.infer(input_image)
 
+    print("MoGe2 keys", moge_data.keys())
+    depth = moge_data["depth"]
+    depth_np = depth.detach().cpu().numpy()
+    np.save(path, depth_np)
+
     # get intrinsics
     intrinsics = denormalize_f(moge_data["intrinsics"].cpu().numpy(), H, W)
+    print("Intrinsics:", intrinsics)
     v_focal = intrinsics[1, 1]
 
     # override hfov with v_focal

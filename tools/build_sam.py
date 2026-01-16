@@ -20,8 +20,8 @@ class HumanSegmentor:
         else:
             raise NotImplementedError
     
-    def run_sam(self, img, boxes, **kwargs):
-        return self.sam_func(self.sam, img, boxes)
+    def run_sam(self, img, boxes, image_path, **kwargs):
+        return self.sam_func(self.sam, img, boxes, image_path)
         
 
 def load_sam2(device, path):
@@ -48,7 +48,7 @@ def load_sam3(device, path):
     return predictor
 
 
-def run_sam2(sam_predictor, img, boxes):
+def run_sam2(sam_predictor, img, boxes, image_path):
     with torch.autocast("cuda", dtype=torch.bfloat16):
         sam_predictor.set_image(img)
         all_masks, all_scores = [], []
@@ -70,14 +70,16 @@ def run_sam2(sam_predictor, img, boxes):
             all_masks.append(mask_1)
             all_scores.append(score_1)
 
-            # cv2.imwrite(os.path.join(save_dir, f"{os.path.basename(image_path)[:-4]}_mask_{i}.jpg"), (mask_1 * 255).astype(np.uint8))
+            import cv2
+            cv2.imwrite(image_path, (mask_1 * 255).astype(np.uint8))
+            print("########### Mask saved to:", image_path)
         all_masks = np.stack(all_masks)
         all_scores = np.stack(all_scores)
 
     return all_masks, all_scores
 
 
-def run_sam3(sam_predictor, img, boxes):
+def run_sam3(sam_predictor, img, boxes, image_path):
     # switch bgr to rgb 
     img = img[:, :, ::-1].copy()
     img = Image.fromarray(img.astype('uint8'), 'RGB')

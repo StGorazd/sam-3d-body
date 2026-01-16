@@ -85,6 +85,7 @@ dmypy.json
 # IDE
 .vscode/
 .claude/
+.idea/
 
 # Project-specific: Model weights and checkpoints
 *.pt
