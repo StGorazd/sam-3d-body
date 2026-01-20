@@ -7,11 +7,8 @@ import numpy as np
 from tqdm import tqdm
 
 # enable .HEIC files
-from pillow_heif import register_heif_opener
-
 from utils.image import is_image, load_image
 
-register_heif_opener()
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -20,6 +17,26 @@ def parse_args():
     parser.add_argument('calib_path')
 
     return parser.parse_args()
+
+
+def register_checkerboard_single_image(image, K, dist=None, debug=True):
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+    objp = np.zeros((5 * 8, 3), np.float32)
+    objp[:, :2] = 0.03 * np.mgrid[0:8, 0:5].T.reshape(-1, 2)
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    ret, corners = cv2.findChessboardCorners(gray, (8, 5), None)
+    if ret == True:
+        corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+
+        if debug:
+            img = cv2.drawChessboardCorners(image, (8, 5), corners2, ret)
+            cv2.imshow('img', cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4)))
+            cv2.waitKey(1)
+
+        return corners2, objp
+    else:
+        raise ValueError("No checkerboard found")
 
 
 def calibrate(images, debug=False):
