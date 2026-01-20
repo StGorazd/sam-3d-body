@@ -5,10 +5,6 @@ import numpy as np
 from utils.calib import register_checkerboard_single_image
 
 
-def load_moge(path):
-    ...
-
-
 def unproject_points(x, K):
     # params: x - Nx2 array of points
     #         K - 3x3 intrinsics matrix

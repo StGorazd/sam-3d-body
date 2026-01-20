@@ -8,15 +8,12 @@ import torch
 import rerun as rr
 import trimesh
 
-from utils.image import load_image
+from utils.image import load_image, is_image
 from utils.pointcloud import get_moge_pointcloud, get_scaled_pointcloud
 
 
 def get_mhr_data(scripted_mhr_model, json_data):
     params = torch.Tensor([json_data['mhr_model_params']])
-    params[0, 3:6] = torch.Tensor([json_data['global_rot']])
-    params[0, 0:3] = torch.Tensor([json_data['pred_cam_t']])
-
     identity_coeffs = torch.Tensor([json_data['shape_params']])
     face_expr_coeffs = torch.Tensor([json_data['expr_params']])
 
@@ -63,43 +60,60 @@ if __name__ == '__main__':
     image_dir = 'D:/Research/data/antropo/x1'
     data_dir = 'D:/Research/data/antropo/x1'
 
-    image_name = 'IMG_9576'
+    fnames = os.listdir(image_dir)
+    fnames = [x for x in fnames if '.jpeg' in x]
 
-    image = load_image(os.path.join(image_dir, f'{image_name}.jpeg'))
-    # image = cv2.resize(image, (1536, 2048))
-    mask = load_image(os.path.join(data_dir, f'{image_name}_mask.jpg'))[:,:,0] > 177
-    moge_depth = np.load(os.path.join(data_dir, f'{image_name}_depth.npy'))
+    # fnames = [x for x in fnames if is_image(x)]
+    # fnames = [x for x in fnames if 'mask' not in x]
+    # fnames = [x for x in fnames if 'box' not in x]
 
-    with open(os.path.join(data_dir, f'{image_name}.json'), 'r') as f:
-        json_data = json.load(f)
+    for fname in fnames:
+        print(fname)
+        image_name = fname.split('.')[0]
+        image = load_image(os.path.join(image_dir, fname))
+        # image = cv2.resize(image, (1536, 2048))
+        mask = load_image(os.path.join(data_dir, f'{image_name}_mask.jpg'))[:,:,0] > 177
+        moge_depth = np.load(os.path.join(data_dir, f'{image_name}_depth.npy'))
 
-    print(json_data)
+        with open(os.path.join(data_dir, f'{image_name}.json'), 'r') as f:
+            json_data = json.load(f)
 
-    f = json_data['focal_length']
-    K = np.array([[f, 0, image.shape[1]/2], [0, f, image.shape[0]/2], [0, 0, 1]])
-    # points = get_moge_pointcloud(moge_depth, K)
-    points = get_scaled_pointcloud(image, moge_depth, K)
 
-    masked_points = points.reshape(-1, 3)[mask.ravel()]
-    masked_colors = image[:, :, ::-1].reshape(-1, 3)[mask.ravel()]
-    masked_points[:, 1] *= -1
-    masked_points[:, 2] *= -1
+        f = json_data['focal_length']
+        K = np.array([[f, 0, image.shape[1]/2], [0, f, image.shape[0]/2], [0, 0, 1]])
 
-    # write code to visualize the pointcloud using rerun
-    rr.init("Viewer", spawn=True)
-    rr.log("moge_pointcloud", rr.Points3D(masked_points, colors=masked_colors))
+        # points = get_moge_pointcloud(moge_depth, K)
+        points = get_scaled_pointcloud(image, moge_depth, K)
 
-    mean_model_mesh = get_mhr_data(scripted_mhr_model, json_data)
+        masked_points = points.reshape(-1, 3)[mask.ravel()]
+        masked_colors = image[:, :, ::-1].reshape(-1, 3)[mask.ravel()]
 
-    # mean_model_mesh.vertices[:, 1] *= -1
-    # mean_model_mesh.vertices[:, 2] *= -1
+        t = np.array(json_data['pred_cam_t'])
 
-    rr.log("mhr_model", rr.Mesh3D(vertex_positions=mean_model_mesh.vertices,
-                                  triangle_indices=mean_model_mesh.faces,
-                                  vertex_normals=mean_model_mesh.vertex_normals,
-                                  # modify this so we get colors that change throughout the mesh
-                                  # vertex_colors=np.zeros_like(mean_model_mesh.vertices)))
-                                  vertex_colors=np.array([0, 0, 190])))
+        json_data['pred_cam_t'] = np.array([0, 0, 0])
 
-    # json_mesh = json_data['pred_vertices']
-    # rr.log("json_mesh", rr.Points3D(json_mesh, colors=np.array([0, 0, 230])))
+        mean_model_mesh = get_mhr_data(scripted_mhr_model, json_data)
+
+        mean_model_mesh.vertices[:, 1] *= -1
+        mean_model_mesh.vertices[:, 2] *= -1
+        mean_model_mesh.vertices += t[np.newaxis, :]
+
+        # write code to visualize the pointcloud using rerun
+        rr.init(f"Viewer - {fname}", spawn=True)
+        rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)  # Set an up-axis
+        rr.log(
+            "world/xyz",
+            rr.Arrows3D(
+                vectors=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+                colors=[[255, 0, 0], [0, 255, 0], [0, 0, 255]],
+            ),
+        )
+
+        rr.log("moge_pointcloud", rr.Points3D(masked_points, colors=masked_colors))
+
+        rr.log("mhr_model", rr.Mesh3D(vertex_positions=mean_model_mesh.vertices,
+                                      triangle_indices=mean_model_mesh.faces,
+                                      vertex_normals=mean_model_mesh.vertex_normals,
+                                      vertex_colors=np.array([0, 0, 190])))
+
+

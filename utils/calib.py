@@ -19,7 +19,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def register_checkerboard_single_image(image, K, dist=None, debug=True):
+def register_checkerboard_single_image(image, K, dist=None, debug=False):
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
     objp = np.zeros((5 * 8, 3), np.float32)
     objp[:, :2] = 0.03 * np.mgrid[0:8, 0:5].T.reshape(-1, 2)
