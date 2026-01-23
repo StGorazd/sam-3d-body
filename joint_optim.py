@@ -17,6 +17,7 @@ import trimesh
 from tqdm import tqdm
 
 from utils.image import load_image, is_image
+from utils.measure import get_measurements
 from utils.pointcloud import get_moge_pointcloud, get_scaled_pointcloud
 
 class MultiViewMultiPoseMHR(torch.nn.Module):
@@ -168,9 +169,12 @@ if __name__ == '__main__':
         loss = loss_mask + loss_pcl
         loss.backward()
         optimizer.step()
-        pbar.set_description(f"Total: {loss.item():0.6f}, Mask: {loss_mask.item():0.6f}, PCL: {loss_pcl.item():0.6}")
+        waist, zadok = get_measurements(model.mhr_model, model.identity.unsqueeze(0))
+        pbar.set_description(f"Total: {loss.item():0.6f}, Mask: {loss_mask.item():0.6f}, PCL: {loss_pcl.item():0.6}, Waist: {waist:0.4}, Zadok: {zadok:0.4}")
         if i % 10 == 0:
             model.visualize(i, vertices, masks)
+
+
 
 
 
