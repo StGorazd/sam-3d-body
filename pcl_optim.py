@@ -47,8 +47,19 @@ class SinglePoseMHR(torch.nn.Module):
         self.pose = torch.nn.Parameter(torch.zeros([1, 204]), requires_grad=True)
         self.t = torch.nn.Parameter(torch.zeros([1, 3]), requires_grad=True)
 
+    def _start_timer(self):
+        e = torch.cuda.Event(enable_timing=True)
+        e.record()
+        return e
+
+    def _end_timer(self, start_event):
+        end = torch.cuda.Event(enable_timing=True)
+        end.record()
+        torch.cuda.synchronize()
+        return start_event.elapsed_time(end)  # milliseconds
+
     def forward(self):
-        t1 = time.time()
+        t1 = self._start_timer()
         mean_model_vertices, skel_state = (
             self.mhr_model(
                 model_parameters=self.pose,
@@ -56,33 +67,29 @@ class SinglePoseMHR(torch.nn.Module):
                 face_expr_coeffs=self.expr,
             )
         )
-        mhr_time = time.time() - t1
+        mhr_time = self._end_timer(t1)
 
-        t2 = time.time()
+        t2 = self._start_timer()
         mean_model_vertices /= 100
         mean_model_vertices[:, :, 1] *= -1
         mean_model_vertices[:, :, 2] *= -1
         mean_model_vertices += self.t.reshape(-1, 1, 3)
-        transform_time = time.time() - t2
+        transform_time = self._end_timer(t2)
 
-        t3 = time.time()
+        t3 = self._start_timer()
         meshes = Meshes(mean_model_vertices, self.faces)
-        mesh_creation_time = time.time() - t3
+        mesh_creation_time = self._end_timer(t3)
 
         # print("Computin loss")
-        t4 = time.time()
+        t4 = self._start_timer()
         # pcl_loss = pytorch3d.loss.point_mesh_face_distance(meshes, self.pcl)
         # ======================================================================
         sampled_points = sample_points_from_meshes(meshes, num_samples=5000)
         pcl_loss, _ = pytorch3d.loss.chamfer_distance(sampled_points, self.pcl.points_padded())
-        loss_time = time.time() - t4
+        loss_time = self._end_timer(t4)
 
-        print(f"\nTiming breakdown (ms):")
-        print(f"  MHR model: {mhr_time * 1000:.2f}", end="")
-        print(f"  Transform: {transform_time * 1000:.2f}", end="")
-        print(f"  Mesh creation: {mesh_creation_time * 1000:.2f}", end="")
-        print(f"  Loss computation: {loss_time * 1000:.2f}", end="")
-        print(f"  Total: {(mhr_time + transform_time + mesh_creation_time + loss_time) * 1000:.2f}")
+        total_time = mhr_time + transform_time + mesh_creation_time + loss_time
+        print(f"[ms] MHR={mhr_time:.2f} T={transform_time:.2f} M={mesh_creation_time:.2f} L={loss_time:.2f} Total={total_time:.2f}")
 
         return mean_model_vertices, pcl_loss
 
