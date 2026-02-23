@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import pytorch3d
 from pytorch3d.io import load_ply
+from pytorch3d.ops import sample_points_from_meshes
 from pytorch3d.structures import Pointclouds, Meshes
 from pytorch3d.loss import point_mesh_face_distance
 
@@ -13,6 +14,7 @@ import torch
 import rerun as rr
 import trimesh
 from tqdm import tqdm
+import time
 
 from utils.image import load_image, is_image
 from utils.measure import get_measurements
@@ -33,7 +35,7 @@ class SinglePoseMHR(torch.nn.Module):
 
         # self.register_buffer('pcl', pcl_verts.unsqueeze(0))
         pcl_mesh.vertices[:, 1] *= -1
-        # pcl_mesh.vertices[:, 2] *= -1
+        pcl_mesh.vertices[:, 2] *= -1
 
         self.pcl = Pointclouds(torch.Tensor(pcl_mesh.vertices).unsqueeze(0) / 1000).cuda()
         self.colors = pcl_mesh.colors
@@ -45,7 +47,19 @@ class SinglePoseMHR(torch.nn.Module):
         self.pose = torch.nn.Parameter(torch.zeros([1, 204]), requires_grad=True)
         self.t = torch.nn.Parameter(torch.zeros([1, 3]), requires_grad=True)
 
+    def _start_timer(self):
+        e = torch.cuda.Event(enable_timing=True)
+        e.record()
+        return e
+
+    def _end_timer(self, start_event):
+        end = torch.cuda.Event(enable_timing=True)
+        end.record()
+        torch.cuda.synchronize()
+        return start_event.elapsed_time(end)  # milliseconds
+
     def forward(self):
+        t1 = self._start_timer()
         mean_model_vertices, skel_state = (
             self.mhr_model(
                 model_parameters=self.pose,
@@ -53,15 +67,29 @@ class SinglePoseMHR(torch.nn.Module):
                 face_expr_coeffs=self.expr,
             )
         )
+        mhr_time = self._end_timer(t1)
 
+        t2 = self._start_timer()
         mean_model_vertices /= 100
         mean_model_vertices[:, :, 1] *= -1
         mean_model_vertices[:, :, 2] *= -1
         mean_model_vertices += self.t.reshape(-1, 1, 3)
+        transform_time = self._end_timer(t2)
 
+        t3 = self._start_timer()
         meshes = Meshes(mean_model_vertices, self.faces)
+        mesh_creation_time = self._end_timer(t3)
+
         # print("Computin loss")
-        pcl_loss = pytorch3d.loss.point_mesh_face_distance(meshes, self.pcl)
+        t4 = self._start_timer()
+        # pcl_loss = pytorch3d.loss.point_mesh_face_distance(meshes, self.pcl)
+        # ======================================================================
+        sampled_points = sample_points_from_meshes(meshes, num_samples=5000)
+        pcl_loss, _ = pytorch3d.loss.chamfer_distance(sampled_points, self.pcl.points_padded())
+        loss_time = self._end_timer(t4)
+
+        total_time = mhr_time + transform_time + mesh_creation_time + loss_time
+        print(f"[ms] MHR={mhr_time:.2f} T={transform_time:.2f} M={mesh_creation_time:.2f} L={loss_time:.2f} Total={total_time:.2f}")
 
         return mean_model_vertices, pcl_loss
 
