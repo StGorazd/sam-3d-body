@@ -35,6 +35,8 @@ class SinglePoseMHR(torch.nn.Module):
             dtype=torch.int64,
             device="cuda"
         )
+        # print(self.mhr_model.character.mesh.faces)
+        # print(type(self.mhr_model.character.mesh.faces[0][0]))
         self.register_buffer("faces", faces.unsqueeze(0))
 
         rr.init(f"Viewer - Single Pose", spawn=True)
