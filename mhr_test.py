@@ -22,10 +22,11 @@ def get_hand_pose_indices(assets_folder="assets/assets", lod=6):
     # finger_parts = {"index", "middle", "ring", "pinky", "thumb"}
     # finger_parts = {"arm", "shoulder", "elbow"}
     foot_parts = {"foot", "toe", "ankle", "heel", "ball"}
-
+    # arm_parts = {"arm", "elbow", "hand"}
 
     indices = []
     for i, name in enumerate(lbs_parameter_names[:num_pose_param]):
+        print(name)
         if any(part in name.lower() for part in foot_parts):
             indices.append(i)
 
