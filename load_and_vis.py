@@ -9,6 +9,7 @@ import rerun as rr
 import trimesh
 
 from utils.image import load_image, is_image
+from utils.paths import depth_path, json_path, mask_path
 from utils.pointcloud import get_moge_pointcloud, get_scaled_pointcloud
 
 
@@ -69,13 +70,12 @@ if __name__ == '__main__':
 
     for fname in fnames:
         print(fname)
-        image_name = fname.split('.')[0]
         image = load_image(os.path.join(image_dir, fname))
         # image = cv2.resize(image, (1536, 2048))
-        mask = load_image(os.path.join(data_dir, f'{image_name}_mask.jpg'))[:,:,0] > 177
-        moge_depth = np.load(os.path.join(data_dir, f'{image_name}_depth.npy'))
+        mask = load_image(mask_path(data_dir, fname))[:,:,0] > 177
+        moge_depth = np.load(depth_path(data_dir, fname))
 
-        with open(os.path.join(data_dir, f'{image_name}.json'), 'r') as f:
+        with open(json_path(data_dir, fname), 'r') as f:
             json_data = json.load(f)
 
 

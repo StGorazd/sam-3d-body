@@ -19,24 +19,44 @@ def parse_args():
     return parser.parse_args()
 
 
-def register_checkerboard_single_image(image, K, dist=None, debug=False):
+def register_checkerboard_single_image(image, K, dist=None, debug=False, detect_max_side=1200):
+    """Locate the 8x5 checkerboard, raise ValueError when there is none in the image.
+
+    findChessboardCorners scales badly with resolution and is slowest exactly in the case we
+    do not care about, an image without a board (tens of seconds on a 24 MP photo). The board
+    is therefore searched on a downscaled copy, first with CALIB_CB_FAST_CHECK, and only the
+    subpixel refinement of the corners runs at full resolution.
+    """
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
     objp = np.zeros((5 * 8, 3), np.float32)
     objp[:, :2] = 0.03 * np.mgrid[0:8, 0:5].T.reshape(-1, 2)
 
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    ret, corners = cv2.findChessboardCorners(gray, (8, 5), None)
-    if ret == True:
-        corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+    scale = min(1.0, detect_max_side / max(gray.shape[:2]))
+    small = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1 else gray
 
-        if debug:
-            img = cv2.drawChessboardCorners(image, (8, 5), corners2, ret)
-            cv2.imshow('img', cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4)))
-            cv2.waitKey(1)
-
-        return corners2, objp
-    else:
+    flags = cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_NORMALIZE_IMAGE
+    ret, corners = cv2.findChessboardCorners(small, (8, 5), flags | cv2.CALIB_CB_FAST_CHECK)
+    if not ret:
+        # the fast check gives up on boards it considers too weak, retry without it -- still
+        # cheap, the full search only has to look at the downscaled image
+        ret, corners = cv2.findChessboardCorners(small, (8, 5), flags)
+    if not ret:
         raise ValueError("No checkerboard found")
+
+    corners = (corners / scale).astype(np.float32)
+    # The refinement window has to cover the error of the downscaled detection (a few pixels)
+    # without reaching the neighbouring corner, so it is derived from the corner spacing.
+    spacing = float(np.min(np.linalg.norm(np.diff(corners.reshape(5, 8, 2), axis=1), axis=-1)))
+    win = int(np.clip(round(spacing / 3), 5, 30))
+    corners2 = cv2.cornerSubPix(gray, corners, (win, win), (-1, -1), criteria)
+
+    if debug:
+        img = cv2.drawChessboardCorners(image, (8, 5), corners2, ret)
+        cv2.imshow('img', cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4)))
+        cv2.waitKey(1)
+
+    return corners2, objp
 
 
 def calibrate(images, debug=False):

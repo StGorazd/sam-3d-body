@@ -9,7 +9,7 @@ IMG_EXTENSIONS = [
     '.heic', '.HEIC', '.heif', '.HEIF'
 ]
 
-from PIL import Image
+from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 register_heif_opener()
 
@@ -23,6 +23,9 @@ def load_image(fname):
     # implement option to load .heic files as opencv images ussing pillow_heif
     try:
         pil_img = Image.open(fname)
+        # phone photos are often stored rotated with an exif orientation tag, apply it so that
+        # every part of the pipeline (masks, depths, detections) works with the same pixels
+        pil_img = ImageOps.exif_transpose(pil_img).convert('RGB')
         return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
     except ImportError:
         print("Pillow-heif not installed. Cannot open .heic files. Please install it with 'pip install pillow-heif'")
