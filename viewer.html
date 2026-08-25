@@ -1,0 +1,1455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Distance Viewer — OBJ / PLY</title>
+<style>
+  :root{
+    --bg:#101216;
+    --panel:#161a20;
+    --panel-2:#1c2128;
+    --line:#272d36;
+    --line-soft:#20252c;
+    --ink:#dbe0e8;
+    --ink-dim:#8b95a3;
+    --ink-faint:#5d6673;
+    --signal:#6fd3b0;
+    --warn:#e0a35a;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Roboto Mono", Menlo, Consolas, monospace;
+    --sans: "Inter", "Helvetica Neue", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--bg);color:var(--ink);font-family:var(--sans);
+    font-size:13px;overflow:hidden;-webkit-font-smoothing:antialiased;
+  }
+  #app{display:flex;height:100%;width:100%}
+
+  /* ---------- panel ---------- */
+  #panel{
+    width:352px;min-width:352px;height:100%;overflow-y:auto;overflow-x:hidden;
+    background:var(--panel);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;
+  }
+  #panel::-webkit-scrollbar{width:9px}
+  #panel::-webkit-scrollbar-thumb{background:#2c333d;border-radius:0}
+  header{
+    padding:16px 16px 14px;border-bottom:1px solid var(--line);
+  }
+  h1{
+    margin:0;font-size:12px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;
+  }
+  header p{margin:6px 0 0;color:var(--ink-faint);font-size:11px;line-height:1.5}
+
+  .lbl{
+    font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);
+    font-weight:600;
+  }
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  section{padding:14px 16px;border-bottom:1px solid var(--line)}
+
+  /* drop zone */
+  #drop{
+    border:1px dashed #333b46;padding:16px 12px;text-align:center;cursor:pointer;
+    transition:border-color .15s, background .15s;
+  }
+  #drop:hover,#drop.hot{border-color:var(--signal);background:#141c1a}
+  #drop .big{font-size:12px;color:var(--ink)}
+  #drop .small{font-size:10.5px;color:var(--ink-faint);margin-top:5px;font-family:var(--mono)}
+
+  /* generic controls */
+  .row{display:flex;align-items:center;gap:8px}
+  .row + .row{margin-top:8px}
+  .grow{flex:1;min-width:0}
+  button{
+    font-family:var(--sans);font-size:11px;color:var(--ink);background:var(--panel-2);
+    border:1px solid var(--line);padding:5px 9px;cursor:pointer;letter-spacing:.02em;
+  }
+  button:hover{border-color:#3b4553;background:#222831}
+  button:active{background:#1a1f26}
+  button.on{border-color:var(--signal);color:var(--signal)}
+  button.ghost{background:transparent}
+  button.danger:hover{border-color:#b5563f;color:#e08a72}
+  select,input[type=text],input[type=number]{
+    font-family:var(--mono);font-size:11px;color:var(--ink);background:#12161b;
+    border:1px solid var(--line);padding:4px 6px;width:100%;
+  }
+  select{font-family:var(--sans)}
+  input:focus,select:focus,button:focus-visible{outline:2px solid var(--signal);outline-offset:-1px}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;background:transparent;width:100%;height:16px;margin:0;
+  }
+  input[type=range]::-webkit-slider-runnable-track{height:2px;background:#333b46}
+  input[type=range]::-moz-range-track{height:2px;background:#333b46}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:11px;height:11px;background:var(--ink);margin-top:-4.5px;border-radius:0;
+  }
+  input[type=range]::-moz-range-thumb{width:11px;height:11px;background:var(--ink);border:0;border-radius:0}
+  input[type=checkbox]{accent-color:var(--signal);width:13px;height:13px;margin:0}
+  label.ck{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:11px;color:var(--ink-dim)}
+
+  /* file cards */
+  #files{padding:0}
+  .card{border-bottom:1px solid var(--line);padding:12px 16px 14px}
+  .card.hidden-obj{opacity:.5}
+  .card h2{
+    margin:0;font-size:12px;font-weight:600;letter-spacing:.01em;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .swatch{width:9px;height:9px;flex:0 0 auto;border:1px solid #00000060}
+  .meta{font-family:var(--mono);font-size:10px;color:var(--ink-faint);margin-top:3px}
+  .sub{margin-top:11px}
+  .sub .lbl{display:block;margin-bottom:5px}
+  .divider{height:1px;background:var(--line-soft);margin:11px -16px 0}
+
+  .scalebox{display:flex;gap:8px;align-items:center}
+  .scalebox input[type=number]{width:84px;flex:0 0 auto;text-align:right}
+
+  /* ramp = signature element: colorbar + histogram + drag handles */
+  .ramp-wrap{position:relative;margin-top:6px;user-select:none}
+  canvas.ramp{width:100%;height:54px;display:block;cursor:ew-resize;background:#0d0f13}
+  .ramp-nums{display:flex;justify-content:space-between;margin-top:4px}
+  .ramp-nums input{width:88px;text-align:center;padding:3px 4px}
+  .stats{
+    font-family:var(--mono);font-size:10px;color:var(--ink-dim);line-height:1.65;margin-top:8px;
+    display:grid;grid-template-columns:auto auto;gap:0 14px;
+  }
+  .stats b{color:var(--ink);font-weight:500}
+  .prog{height:2px;background:#222830;margin-top:8px}
+  .prog i{display:block;height:100%;background:var(--signal);width:0%}
+
+  /* viewport */
+  #view{flex:1;position:relative;min-width:0}
+  #view canvas{display:block}
+  #hud{
+    position:absolute;left:14px;bottom:12px;font-family:var(--mono);font-size:10.5px;
+    color:#6d7784;pointer-events:none;line-height:1.6;text-shadow:0 1px 2px #000;
+  }
+  #hint{
+    position:absolute;right:14px;top:12px;font-family:var(--mono);font-size:10.5px;
+    color:#59626e;pointer-events:none;text-align:right;line-height:1.7;
+  }
+  #status{
+    padding:9px 16px;font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);
+    border-top:1px solid var(--line);min-height:32px;position:sticky;bottom:0;background:var(--panel);
+  }
+  #status.busy{color:var(--signal)}
+  #empty{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:#3d4manual;pointer-events:none;
+  }
+  details summary{cursor:pointer;color:var(--ink-faint);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase}
+  details p{color:var(--ink-faint);font-size:11px;line-height:1.6}
+  details code{font-family:var(--mono);color:var(--ink-dim)}
+  @media (max-width:820px){
+    #app{flex-direction:column-reverse}
+    #panel{width:100%;min-width:0;height:52%;border-right:0;border-top:1px solid var(--line)}
+    #view{height:48%}
+  }
+  @media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="panel">
+    <header>
+      <h1>Distance Viewer</h1>
+      <p>Load OBJ / PLY meshes and point clouds, scale them, and shade one by its distance to another.</p>
+    </header>
+
+    <section>
+      <div id="drop">
+        <div class="big">Drop files here, or click to browse</div>
+        <div class="small">.obj &nbsp;·&nbsp; .ply (ascii + binary) &nbsp;·&nbsp; .xyz</div>
+      </div>
+      <input id="picker" type="file" multiple accept=".obj,.ply,.xyz,.txt" style="display:none">
+    </section>
+
+    <section>
+      <div class="row">
+        <span class="lbl grow">Scene</span>
+        <button id="btn-fit" class="ghost">Fit view</button>
+      </div>
+      <div class="row" style="margin-top:9px">
+        <span class="lbl" style="width:74px">Point size</span>
+        <input id="ptsize" type="range" min="1" max="10" step="0.5" value="2.5" class="grow">
+        <span id="ptsize-v" class="num" style="width:26px;text-align:right;color:var(--ink-dim)">2.5</span>
+      </div>
+      <div class="row" style="margin-top:9px;gap:14px">
+        <label class="ck"><input type="checkbox" id="ck-grid" checked> Grid</label>
+        <label class="ck"><input type="checkbox" id="ck-axes" checked> Axes</label>
+        <label class="ck"><input type="checkbox" id="ck-persp" checked> Perspective</label>
+      </div>
+    </section>
+
+    <div id="files"></div>
+
+    <section>
+      <details>
+        <summary>How distances are computed</summary>
+        <p>For every vertex of the shaded object, the nearest point on the reference object is found with a BVH:
+        against <code>triangles</code> when the reference is a mesh, against <code>points</code> when it is a cloud.
+        Both objects are transformed by their scale factors first, so distances are in world units.
+        Signed mode takes the sign from the closest triangle's normal (negative = inside).</p>
+      </details>
+    </section>
+
+    <div id="status">No files loaded.</div>
+  </aside>
+
+  <div id="view">
+    <div id="hint">drag · orbit<br>right / two-finger · pan<br>wheel · zoom</div>
+    <div id="hud"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+"use strict";
+if (typeof THREE === "undefined") {
+  document.getElementById('status').textContent = "three.js failed to load — this page needs internet access on first open.";
+  return;
+}
+
+/* ============================================================ colormaps */
+function clamp01(t){ return t<0?0:(t>1?1:t); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+
+function rampFromStops(stops){
+  return function(t){
+    t = clamp01(t);
+    for (let i=0;i<stops.length-1;i++){
+      const a=stops[i], b=stops[i+1];
+      if (t<=b[0] || i===stops.length-2){
+        const u = b[0]===a[0] ? 0 : (t-a[0])/(b[0]-a[0]);
+        const v = clamp01(u);
+        return [lerp(a[1],b[1],v), lerp(a[2],b[2],v), lerp(a[3],b[3],v)];
+      }
+    }
+    return [0,0,0];
+  };
+}
+
+const CM = {
+  turbo: function(t){
+    t = clamp01(t);
+    const t2=t*t, t3=t2*t, t4=t3*t, t5=t4*t;
+    let r = 0.13572138 + 4.61539260*t - 42.66032258*t2 + 132.13108234*t3 - 152.94239396*t4 + 59.28637943*t5;
+    let g = 0.09140261 + 2.19418839*t + 4.84296658*t2 - 14.18503333*t3 + 4.27729857*t4 + 2.82956604*t5;
+    let b = 0.10667330 + 12.64194608*t - 60.58204836*t2 + 110.36276771*t3 - 89.90310912*t4 + 27.34824973*t5;
+    return [clamp01(r),clamp01(g),clamp01(b)];
+  },
+  viridis: rampFromStops([
+    [0.000,0.267,0.005,0.329],[0.125,0.283,0.157,0.471],[0.250,0.244,0.288,0.538],
+    [0.375,0.191,0.408,0.556],[0.500,0.149,0.510,0.557],[0.625,0.122,0.620,0.537],
+    [0.750,0.208,0.718,0.473],[0.875,0.428,0.804,0.349],[0.940,0.706,0.871,0.174],
+    [1.000,0.993,0.906,0.144]
+  ]),
+  inferno: rampFromStops([
+    [0.000,0.001,0.000,0.014],[0.150,0.157,0.043,0.325],[0.300,0.361,0.075,0.432],
+    [0.450,0.561,0.145,0.408],[0.600,0.757,0.239,0.303],[0.750,0.910,0.404,0.145],
+    [0.880,0.983,0.646,0.040],[1.000,0.988,0.998,0.645]
+  ]),
+  coolwarm: rampFromStops([
+    [0.000,0.231,0.298,0.753],[0.500,0.865,0.865,0.865],[1.000,0.706,0.016,0.150]
+  ]),
+  jet: rampFromStops([
+    [0.000,0.000,0.000,0.500],[0.125,0.000,0.000,1.000],[0.375,0.000,1.000,1.000],
+    [0.625,1.000,1.000,0.000],[0.875,1.000,0.000,0.000],[1.000,0.500,0.000,0.000]
+  ]),
+  gray: rampFromStops([[0,0.05,0.05,0.05],[1,1,1,1]])
+};
+const CM_NAMES = { turbo:"Turbo", viridis:"Viridis", inferno:"Inferno", coolwarm:"Cool–warm (signed)", jet:"Jet", gray:"Grayscale" };
+
+/* ============================================================ parsers */
+function decodeLatin1(bytes, end){
+  const CH = 65536; let s = "";
+  const n = end===undefined ? bytes.length : end;
+  for (let i=0;i<n;i+=CH) s += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(n,i+CH)));
+  return s;
+}
+
+// --- OBJ ------------------------------------------------------------------
+function parseOBJ(text){
+  const V=[], C=[], F=[];
+  let hasColor=false;
+  const lines = text.split(/\r\n|\r|\n/);
+  for (let li=0; li<lines.length; li++){
+    const line = lines[li];
+    if (!line.length) continue;
+    const c0 = line.charCodeAt(0);
+    if (c0===118){ // 'v'
+      if (line.charCodeAt(1)===32 || line.charCodeAt(1)===9){
+        const p = line.split(/\s+/);
+        V.push(+p[1], +p[2], +p[3]);
+        if (p.length>=7 && p[4]!=="" && isFinite(+p[6])){ C.push(+p[4],+p[5],+p[6]); hasColor=true; }
+        else C.push(1,1,1);
+      }
+    } else if (c0===102){ // 'f'
+      const p = line.split(/\s+/);
+      const poly=[];
+      for (let i=1;i<p.length;i++){
+        if (!p[i]) continue;
+        const slash = p[i].indexOf('/');
+        let vi = parseInt(slash<0 ? p[i] : p[i].slice(0,slash), 10);
+        if (!isFinite(vi)) continue;
+        if (vi<0) vi = (V.length/3) + vi; else vi = vi-1;
+        poly.push(vi);
+      }
+      for (let i=1;i+1<poly.length;i++) F.push(poly[0], poly[i], poly[i+1]);
+    }
+  }
+  return finalize(V, hasColor?C:null, F);
+}
+
+// --- XYZ (x y z [r g b]) --------------------------------------------------
+function parseXYZ(text){
+  const V=[], C=[]; let hasColor=false;
+  const lines = text.split(/\r\n|\r|\n/);
+  for (let i=0;i<lines.length;i++){
+    const l = lines[i].trim();
+    if (!l || l[0]==='#') continue;
+    const p = l.split(/[\s,;]+/);
+    const x=+p[0], y=+p[1], z=+p[2];
+    if (!isFinite(x)||!isFinite(y)||!isFinite(z)) continue;
+    V.push(x,y,z);
+    if (p.length>=6 && isFinite(+p[5])){
+      let r=+p[3], g=+p[4], b=+p[5];
+      if (r>1.001||g>1.001||b>1.001){ r/=255; g/=255; b/=255; }
+      C.push(r,g,b); hasColor=true;
+    } else C.push(1,1,1);
+  }
+  return finalize(V, hasColor?C:null, []);
+}
+
+// --- PLY ------------------------------------------------------------------
+const PLY_SIZE = {char:1,uchar:1,int8:1,uint8:1,short:2,ushort:2,int16:2,uint16:2,
+                  int:4,uint:4,int32:4,uint32:4,float:4,float32:4,double:8,float64:8};
+function plyRead(dv, off, type, le){
+  switch(type){
+    case 'char': case 'int8':    return dv.getInt8(off);
+    case 'uchar': case 'uint8':  return dv.getUint8(off);
+    case 'short': case 'int16':  return dv.getInt16(off, le);
+    case 'ushort': case 'uint16':return dv.getUint16(off, le);
+    case 'int': case 'int32':    return dv.getInt32(off, le);
+    case 'uint': case 'uint32':  return dv.getUint32(off, le);
+    case 'float': case 'float32':return dv.getFloat32(off, le);
+    case 'double': case 'float64':return dv.getFloat64(off, le);
+  }
+  return 0;
+}
+function parsePLY(buffer){
+  const bytes = new Uint8Array(buffer);
+  const probe = decodeLatin1(bytes, Math.min(bytes.length, 1<<20));
+  const eh = probe.indexOf('end_header');
+  if (eh < 0) throw new Error("not a PLY file (no end_header)");
+  let dataStart = probe.indexOf('\n', eh) + 1;
+  const header = probe.slice(0, eh).split(/\r\n|\r|\n/);
+
+  let format = 'ascii', elements = [], cur = null;
+  for (let i=0;i<header.length;i++){
+    const t = header[i].trim().split(/\s+/);
+    if (t[0]==='format') format = t[1];
+    else if (t[0]==='element'){ cur = {name:t[1], count:parseInt(t[2],10), props:[]}; elements.push(cur); }
+    else if (t[0]==='property' && cur){
+      if (t[1]==='list') cur.props.push({list:true, countType:t[2], type:t[3], name:t[4]});
+      else cur.props.push({list:false, type:t[1], name:t[2]});
+    }
+  }
+  const le = format !== 'binary_big_endian';
+  const ascii = format === 'ascii';
+
+  let V=null, C=null, N=null, F=[], hasColor=false, hasNormal=false;
+  const colorNames = {red:0,green:1,blue:2,diffuse_red:0,diffuse_green:1,diffuse_blue:2,r:0,g:1,b:2};
+
+  if (ascii){
+    const text = new TextDecoder().decode(bytes.subarray(dataStart));
+    const lines = text.split(/\r\n|\r|\n/);
+    let ln = 0;
+    const nextLine = function(){ while(ln<lines.length){ const l=lines[ln++].trim(); if (l) return l.split(/\s+/); } return null; };
+    for (let e=0;e<elements.length;e++){
+      const el = elements[e];
+      if (el.name==='vertex'){
+        V = new Float32Array(el.count*3); C = new Float32Array(el.count*3); N = new Float32Array(el.count*3);
+        for (let i=0;i<el.count;i++){
+          const tok = nextLine(); if (!tok) break;
+          for (let p=0;p<el.props.length;p++){
+            const pr = el.props[p], v = +tok[p];
+            if (pr.name==='x') V[i*3]=v; else if (pr.name==='y') V[i*3+1]=v; else if (pr.name==='z') V[i*3+2]=v;
+            else if (pr.name==='nx'){N[i*3]=v;hasNormal=true;} else if (pr.name==='ny')N[i*3+1]=v; else if (pr.name==='nz')N[i*3+2]=v;
+            else if (colorNames[pr.name]!==undefined){
+              const isFloat = pr.type==='float'||pr.type==='float32'||pr.type==='double'||pr.type==='float64';
+              C[i*3+colorNames[pr.name]] = isFloat ? v : v/255; hasColor=true;
+            }
+          }
+        }
+      } else if (el.name==='face'){
+        for (let i=0;i<el.count;i++){
+          const tok = nextLine(); if (!tok) break;
+          const k = parseInt(tok[0],10);
+          for (let j=1;j+1<k;j++) F.push(+tok[1], +tok[1+j], +tok[2+j]);
+        }
+      } else {
+        for (let i=0;i<el.count;i++) nextLine();
+      }
+    }
+  } else {
+    const dv = new DataView(buffer);
+    let off = dataStart;
+    for (let e=0;e<elements.length;e++){
+      const el = elements[e];
+      if (el.name==='vertex'){
+        V = new Float32Array(el.count*3); C = new Float32Array(el.count*3); N = new Float32Array(el.count*3);
+        // precompute layout
+        const lay = [];
+        let stride = 0, fixed = true;
+        for (let p=0;p<el.props.length;p++){
+          const pr = el.props[p];
+          if (pr.list){ fixed=false; break; }
+          const sz = PLY_SIZE[pr.type]||4;
+          let target = -1;
+          if (pr.name==='x')target=0; else if (pr.name==='y')target=1; else if (pr.name==='z')target=2;
+          else if (pr.name==='nx')target=3; else if (pr.name==='ny')target=4; else if (pr.name==='nz')target=5;
+          else if (colorNames[pr.name]!==undefined) target = 6+colorNames[pr.name];
+          const isFloat = pr.type==='float'||pr.type==='float32'||pr.type==='double'||pr.type==='float64';
+          lay.push({off:stride, type:pr.type, target:target, isFloat:isFloat});
+          stride += sz;
+        }
+        if (!fixed) throw new Error("PLY vertex element with list property is unsupported");
+        for (let i=0;i<el.count;i++){
+          const base = off + i*stride;
+          for (let p=0;p<lay.length;p++){
+            const L = lay[p];
+            if (L.target<0) continue;
+            const v = plyRead(dv, base+L.off, L.type, le);
+            if (L.target<3) V[i*3+L.target]=v;
+            else if (L.target<6){ N[i*3+L.target-3]=v; hasNormal=true; }
+            else { C[i*3+L.target-6] = L.isFloat ? v : v/255; hasColor=true; }
+          }
+        }
+        off += el.count*stride;
+      } else if (el.name==='face'){
+        let idxProp = null;
+        for (let p=0;p<el.props.length;p++) if (el.props[p].list) { idxProp = el.props[p]; break; }
+        if (!idxProp) continue;
+        const cs = PLY_SIZE[idxProp.countType]||1, is = PLY_SIZE[idxProp.type]||4;
+        for (let i=0;i<el.count;i++){
+          const k = plyRead(dv, off, idxProp.countType, le); off += cs;
+          const poly = new Array(k);
+          for (let j=0;j<k;j++){ poly[j] = plyRead(dv, off, idxProp.type, le); off += is; }
+          for (let j=1;j+1<k;j++) F.push(poly[0], poly[j], poly[j+1]);
+        }
+      } else {
+        // skip unknown fixed-size element
+        let stride = 0, ok = true;
+        for (let p=0;p<el.props.length;p++){ if (el.props[p].list){ ok=false; break; } stride += PLY_SIZE[el.props[p].type]||4; }
+        if (!ok) throw new Error("PLY contains an element that cannot be skipped: "+el.name);
+        off += el.count*stride;
+      }
+    }
+  }
+  if (!V) throw new Error("PLY has no vertex element");
+  return finalizeTyped(V, hasColor?C:null, hasNormal?N:null, F);
+}
+
+function finalize(Varr, Carr, Farr){
+  return finalizeTyped(new Float32Array(Varr), Carr?new Float32Array(Carr):null, null, Farr);
+}
+function finalizeTyped(V, C, N, F){
+  let index = null;
+  if (F && F.length){
+    index = (V.length/3 > 65535) ? new Uint32Array(F) : new Uint16Array(F);
+  }
+  return { positions:V, colors:C, normals:N, index:index };
+}
+
+/* ============================================================ BVH */
+// Generic BVH over primitives described by an AABB array (6 floats each).
+function BVH(nPrim, bounds){
+  this.n = nPrim;
+  this.bounds = bounds;
+  this.idx = new Uint32Array(nPrim);
+  for (let i=0;i<nPrim;i++) this.idx[i]=i;
+  const cent = new Float32Array(nPrim*3);
+  for (let i=0;i<nPrim;i++){
+    cent[i*3]   = 0.5*(bounds[i*6]  +bounds[i*6+3]);
+    cent[i*3+1] = 0.5*(bounds[i*6+1]+bounds[i*6+4]);
+    cent[i*3+2] = 0.5*(bounds[i*6+2]+bounds[i*6+5]);
+  }
+  this.cent = cent;
+  this.nb = [];        // node bounds (flat, 6 per node)
+  this.nStart = [];
+  this.nCount = [];
+  this.nLeft = [];
+  this.build(0, nPrim);
+  this.nb = new Float32Array(this.nb);
+  this.nStart = new Int32Array(this.nStart);
+  this.nCount = new Int32Array(this.nCount);
+  this.nLeft = new Int32Array(this.nLeft);
+  this.stack = new Int32Array(128);
+}
+BVH.LEAF = 8;
+BVH.prototype.build = function(start, count){
+  const b = this.bounds, idx = this.idx, cent = this.cent;
+  const node = this.nStart.length;
+  let x0=Infinity,y0=Infinity,z0=Infinity,x1=-Infinity,y1=-Infinity,z1=-Infinity;
+  let cx0=Infinity,cy0=Infinity,cz0=Infinity,cx1=-Infinity,cy1=-Infinity,cz1=-Infinity;
+  for (let i=start;i<start+count;i++){
+    const p = idx[i]*6;
+    if (b[p]  <x0)x0=b[p];   if (b[p+3]>x1)x1=b[p+3];
+    if (b[p+1]<y0)y0=b[p+1]; if (b[p+4]>y1)y1=b[p+4];
+    if (b[p+2]<z0)z0=b[p+2]; if (b[p+5]>z1)z1=b[p+5];
+    const c = idx[i]*3;
+    if (cent[c]  <cx0)cx0=cent[c];   if (cent[c]  >cx1)cx1=cent[c];
+    if (cent[c+1]<cy0)cy0=cent[c+1]; if (cent[c+1]>cy1)cy1=cent[c+1];
+    if (cent[c+2]<cz0)cz0=cent[c+2]; if (cent[c+2]>cz1)cz1=cent[c+2];
+  }
+  this.nb.push(x0,y0,z0,x1,y1,z1);
+  this.nStart.push(start); this.nCount.push(count); this.nLeft.push(-1);
+
+  if (count <= BVH.LEAF) return node;
+
+  const ex = cx1-cx0, ey = cy1-cy0, ez = cz1-cz0;
+  let axis = 0, mid = 0.5*(cx0+cx1);
+  if (ey>ex && ey>=ez){ axis=1; mid=0.5*(cy0+cy1); }
+  else if (ez>ex && ez>=ey){ axis=2; mid=0.5*(cz0+cz1); }
+
+  let i = start, j = start+count-1;
+  while (i<=j){
+    if (cent[idx[i]*3+axis] < mid) i++;
+    else { const t=idx[i]; idx[i]=idx[j]; idx[j]=t; j--; }
+  }
+  let leftCount = i-start;
+  if (leftCount===0 || leftCount===count){
+    // degenerate split: fall back to a median-by-position split
+    const sub = Array.prototype.slice.call(idx.subarray(start, start+count));
+    sub.sort(function(a,b){ return cent[a*3+axis]-cent[b*3+axis]; });
+    idx.set(sub, start);
+    leftCount = count>>1;
+  }
+  const left = this.build(start, leftCount);
+  this.build(start+leftCount, count-leftCount);
+  this.nLeft[node] = left;
+  return node;
+};
+
+/* nearest-primitive query; primDistSq(px,py,pz,prim) must write the closest
+   point into CP[] and return the squared distance. */
+const CP = new Float32Array(3);
+const CPBEST = new Float32Array(3);
+BVH.prototype.nearest = function(px,py,pz, primDistSq, data){
+  const nb=this.nb, nLeft=this.nLeft, nStart=this.nStart, nCount=this.nCount, idx=this.idx;
+  const stack = this.stack;
+  let sp = 0; stack[sp++] = 0;
+  let best = Infinity, bestPrim = -1;
+  while (sp>0){
+    const node = stack[--sp];
+    const q = node*6;
+    // squared distance from point to node AABB
+    let dx = px<nb[q]?nb[q]-px:(px>nb[q+3]?px-nb[q+3]:0);
+    let dy = py<nb[q+1]?nb[q+1]-py:(py>nb[q+4]?py-nb[q+4]:0);
+    let dz = py, dzz;
+    dz = pz<nb[q+2]?nb[q+2]-pz:(pz>nb[q+5]?pz-nb[q+5]:0);
+    dzz = dx*dx+dy*dy+dz*dz;
+    if (dzz >= best) continue;
+    const l = nLeft[node];
+    if (l < 0){
+      const s = nStart[node], c = nCount[node];
+      for (let i=s;i<s+c;i++){
+        const prim = idx[i];
+        const d = primDistSq(px,py,pz, prim, data);
+        if (d < best){ best = d; bestPrim = prim; CPBEST[0]=CP[0]; CPBEST[1]=CP[1]; CPBEST[2]=CP[2]; }
+      }
+    } else {
+      const r = l+1 <= l ? l : this.rightOf(node, l);
+      // order children: push farther first
+      const dl = this.boxDist(l, px,py,pz), dr = this.boxDist(r, px,py,pz);
+      if (dl < dr){ stack[sp++]=r; stack[sp++]=l; } else { stack[sp++]=l; stack[sp++]=r; }
+    }
+  }
+  this.bestPrim = bestPrim;
+  return best;
+};
+BVH.prototype.rightOf = function(node, left){
+  // right child index = node index right after the whole left subtree.
+  // The build order is: node, leftSubtree..., rightSubtree..., so we store it lazily.
+  return this.rightIdx[node];
+};
+BVH.prototype.boxDist = function(node, px,py,pz){
+  const nb=this.nb, q=node*6;
+  const dx = px<nb[q]?nb[q]-px:(px>nb[q+3]?px-nb[q+3]:0);
+  const dy = py<nb[q+1]?nb[q+1]-py:(py>nb[q+4]?py-nb[q+4]:0);
+  const dz = pz<nb[q+2]?nb[q+2]-pz:(pz>nb[q+5]?pz-nb[q+5]:0);
+  return dx*dx+dy*dy+dz*dz;
+};
+
+/* ============================================================ closest point helpers */
+function pointTriangleDistSq(px,py,pz, prim, tri){
+  const o = prim*9;
+  const ax=tri[o],   ay=tri[o+1], az=tri[o+2];
+  const bx=tri[o+3], by=tri[o+4], bz=tri[o+5];
+  const cx=tri[o+6], cy=tri[o+7], cz=tri[o+8];
+  const abx=bx-ax, aby=by-ay, abz=bz-az;
+  const acx=cx-ax, acy=cy-ay, acz=cz-az;
+  const apx=px-ax, apy=py-ay, apz=pz-az;
+  const d1=abx*apx+aby*apy+abz*apz;
+  const d2=acx*apx+acy*apy+acz*apz;
+  let qx,qy,qz;
+  if (d1<=0 && d2<=0){ qx=ax;qy=ay;qz=az; }
+  else {
+    const bpx=px-bx, bpy=py-by, bpz=pz-bz;
+    const d3=abx*bpx+aby*bpy+abz*bpz;
+    const d4=acx*bpx+acy*bpy+acz*bpz;
+    if (d3>=0 && d4<=d3){ qx=bx;qy=by;qz=bz; }
+    else {
+      const vc=d1*d4-d3*d2;
+      if (vc<=0 && d1>=0 && d3<=0){
+        const v=d1/(d1-d3); qx=ax+abx*v; qy=ay+aby*v; qz=az+abz*v;
+      } else {
+        const cpx=px-cx, cpy=py-cy, cpz=pz-cz;
+        const d5=abx*cpx+aby*cpy+abz*cpz;
+        const d6=acx*cpx+acy*cpy+acz*cpz;
+        if (d6>=0 && d5<=d6){ qx=cx;qy=cy;qz=cz; }
+        else {
+          const vb=d5*d2-d1*d6;
+          if (vb<=0 && d2>=0 && d6<=0){
+            const w=d2/(d2-d6); qx=ax+acx*w; qy=ay+acy*w; qz=az+acz*w;
+          } else {
+            const va=d3*d6-d5*d4;
+            if (va<=0 && (d4-d3)>=0 && (d5-d6)>=0){
+              const w=(d4-d3)/((d4-d3)+(d5-d6));
+              qx=bx+(cx-bx)*w; qy=by+(cy-by)*w; qz=bz+(cz-bz)*w;
+            } else {
+              const denom=1/(va+vb+vc);
+              const v=vb*denom, w=vc*denom;
+              qx=ax+abx*v+acx*w; qy=ay+aby*v+acy*w; qz=az+abz*v+acz*w;
+            }
+          }
+        }
+      }
+    }
+  }
+  CP[0]=qx; CP[1]=qy; CP[2]=qz;
+  const ex=px-qx, ey=py-qy, ez=pz-qz;
+  return ex*ex+ey*ey+ez*ez;
+}
+function pointPointDistSq(px,py,pz, prim, pts){
+  const o=prim*3;
+  const qx=pts[o], qy=pts[o+1], qz=pts[o+2];
+  CP[0]=qx; CP[1]=qy; CP[2]=qz;
+  const ex=px-qx, ey=py-qy, ez=pz-qz;
+  return ex*ex+ey*ey+ez*ez;
+}
+
+/* ============================================================ scene */
+const viewEl = document.getElementById('view');
+const renderer = new THREE.WebGLRenderer({antialias:true, alpha:false});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+renderer.setClearColor(0x0b0d11, 1);
+viewEl.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+let camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
+const orthoCam = new THREE.OrthographicCamera(-1,1,1,-1,0.01,1000);
+let usePersp = true;
+
+const amb = new THREE.AmbientLight(0xffffff, 0.62);
+scene.add(amb);
+const key = new THREE.DirectionalLight(0xffffff, 0.55);
+key.position.set(0.4, 0.7, 1);
+const fill = new THREE.DirectionalLight(0xffffff, 0.22);
+fill.position.set(-0.7, -0.3, -0.6);
+const lightRig = new THREE.Group();
+lightRig.add(key); lightRig.add(fill);
+scene.add(lightRig);
+
+const grid = new THREE.GridHelper(10, 10, 0x2a323c, 0x1b2027);
+grid.material.transparent = true; grid.material.opacity = 0.85;
+scene.add(grid);
+const axes = new THREE.AxesHelper(1);
+scene.add(axes);
+
+const root = new THREE.Group();
+scene.add(root);
+
+/* --- orbit control (self-contained) --- */
+const ctrl = {
+  target: new THREE.Vector3(0,0,0),
+  radius: 4, theta: Math.PI*0.25, phi: Math.PI*0.35,
+  panScale: 1
+};
+function applyCamera(){
+  const sp = Math.sin(ctrl.phi), cp = Math.cos(ctrl.phi);
+  const x = ctrl.radius*sp*Math.sin(ctrl.theta);
+  const y = ctrl.radius*cp;
+  const z = ctrl.radius*sp*Math.cos(ctrl.theta);
+  const cam = usePersp ? camera : orthoCam;
+  cam.position.set(ctrl.target.x+x, ctrl.target.y+y, ctrl.target.z+z);
+  cam.up.set(0,1,0);
+  cam.lookAt(ctrl.target);
+  if (!usePersp){
+    const w = viewEl.clientWidth, h = viewEl.clientHeight;
+    const aspect = w/h;
+    const s = ctrl.radius*0.5;
+    orthoCam.left=-s*aspect; orthoCam.right=s*aspect; orthoCam.top=s; orthoCam.bottom=-s;
+    orthoCam.near = 0.001; orthoCam.far = ctrl.radius*100+1000;
+    orthoCam.updateProjectionMatrix();
+  } else {
+    camera.near = Math.max(ctrl.radius*0.001, 1e-4);
+    camera.far  = ctrl.radius*100 + 1000;
+    camera.updateProjectionMatrix();
+  }
+  lightRig.position.copy(cam.position);
+  lightRig.quaternion.copy(cam.quaternion);
+  needsRender = true;
+}
+const el = renderer.domElement;
+let dragMode = 0, lastX=0, lastY=0, pinchDist=0;
+el.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+el.addEventListener('pointerdown', function(e){
+  el.setPointerCapture(e.pointerId);
+  dragMode = (e.button===0 && !e.shiftKey && !e.ctrlKey) ? 1 : 2;
+  lastX=e.clientX; lastY=e.clientY;
+});
+el.addEventListener('pointermove', function(e){
+  if (!dragMode) return;
+  const dx = e.clientX-lastX, dy = e.clientY-lastY;
+  lastX=e.clientX; lastY=e.clientY;
+  if (dragMode===1){
+    ctrl.theta -= dx*0.006;
+    ctrl.phi = Math.max(0.001, Math.min(Math.PI-0.001, ctrl.phi - dy*0.006));
+  } else {
+    const cam = usePersp?camera:orthoCam;
+    const scale = ctrl.radius * (usePersp ? Math.tan(camera.fov*Math.PI/360)*2 : 1) / viewEl.clientHeight;
+    const right = new THREE.Vector3().setFromMatrixColumn(cam.matrix,0);
+    const up = new THREE.Vector3().setFromMatrixColumn(cam.matrix,1);
+    ctrl.target.addScaledVector(right, -dx*scale);
+    ctrl.target.addScaledVector(up, dy*scale);
+  }
+  applyCamera();
+});
+function endDrag(e){ dragMode = 0; }
+el.addEventListener('pointerup', endDrag);
+el.addEventListener('pointercancel', endDrag);
+el.addEventListener('wheel', function(e){
+  e.preventDefault();
+  const f = Math.exp((e.deltaY>0?1:-1)*0.12);
+  ctrl.radius = Math.max(1e-4, ctrl.radius*f);
+  applyCamera();
+}, {passive:false});
+el.addEventListener('touchmove', function(e){
+  if (e.touches.length===2){
+    e.preventDefault();
+    const dx = e.touches[0].clientX-e.touches[1].clientX;
+    const dy = e.touches[0].clientY-e.touches[1].clientY;
+    const d = Math.hypot(dx,dy);
+    if (pinchDist>0){ ctrl.radius = Math.max(1e-4, ctrl.radius*(pinchDist/d)); applyCamera(); }
+    pinchDist = d;
+    dragMode = 0;
+  }
+}, {passive:false});
+el.addEventListener('touchend', function(){ pinchDist = 0; });
+
+let needsRender = true;
+function resize(){
+  const w = viewEl.clientWidth, h = viewEl.clientHeight;
+  renderer.setSize(w,h,false);
+  camera.aspect = w/Math.max(1,h);
+  camera.updateProjectionMatrix();
+  applyCamera();
+}
+window.addEventListener('resize', resize);
+(function loop(){
+  requestAnimationFrame(loop);
+  if (needsRender){ needsRender=false; renderer.render(scene, usePersp?camera:orthoCam); }
+})();
+
+/* ============================================================ state */
+const state = { files:[], nextId:1 };
+const PALETTE = [0xb9c2cf, 0x8fb7d8, 0xd8b48f, 0x9fd8b4, 0xc9a3d8, 0xd89f9f];
+const statusEl = document.getElementById('status');
+function setStatus(msg, busy){
+  statusEl.textContent = msg;
+  statusEl.className = busy ? 'busy' : '';
+}
+function fileById(id){ for (let i=0;i<state.files.length;i++) if (state.files[i].id===id) return state.files[i]; return null; }
+
+/* ============================================================ loading */
+document.getElementById('picker').addEventListener('change', function(e){
+  handleFiles(e.target.files); e.target.value='';
+});
+const drop = document.getElementById('drop');
+drop.addEventListener('click', function(){ document.getElementById('picker').click(); });
+['dragenter','dragover'].forEach(function(ev){
+  window.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add('hot'); });
+});
+['dragleave','drop'].forEach(function(ev){
+  window.addEventListener(ev, function(e){ e.preventDefault(); if (ev==='dragleave' && e.relatedTarget) return; drop.classList.remove('hot'); });
+});
+window.addEventListener('drop', function(e){
+  e.preventDefault();
+  if (e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files);
+});
+
+function handleFiles(list){
+  const arr = Array.prototype.slice.call(list);
+  let i = 0;
+  (function next(){
+    if (i>=arr.length){ rebuildUI(); fitView(); return; }
+    const f = arr[i++];
+    setStatus("Reading "+f.name+" …", true);
+    const fr = new FileReader();
+    fr.onload = function(){
+      try {
+        const ext = (f.name.split('.').pop()||'').toLowerCase();
+        const buf = fr.result;
+        let geom;
+        if (ext==='ply') geom = parsePLY(buf);
+        else if (ext==='obj') geom = parseOBJ(new TextDecoder().decode(new Uint8Array(buf)));
+        else geom = parseXYZ(new TextDecoder().decode(new Uint8Array(buf)));
+        addFile(f.name, geom);
+        setStatus("Loaded "+f.name, false);
+      } catch(err){
+        setStatus("Could not read "+f.name+" — "+err.message, false);
+        console.error(err);
+      }
+      setTimeout(next, 0);
+    };
+    fr.onerror = function(){ setStatus("Could not read "+f.name, false); setTimeout(next,0); };
+    fr.readAsArrayBuffer(f);
+  })();
+}
+
+function addFile(name, g){
+  const nV = g.positions.length/3;
+  const nT = g.index ? g.index.length/3 : 0;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(g.positions, 3));
+  if (g.index) geometry.setIndex(new THREE.BufferAttribute(g.index, 1));
+  const colorAttr = new THREE.BufferAttribute(new Float32Array(nV*3), 3);
+  geometry.setAttribute('color', colorAttr);
+  if (nT){
+    if (g.normals) geometry.setAttribute('normal', new THREE.BufferAttribute(g.normals,3));
+    else geometry.computeVertexNormals();
+  }
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+
+  const solid = PALETTE[state.files.length % PALETTE.length];
+  const meshMat = new THREE.MeshPhongMaterial({
+    vertexColors:true, side:THREE.DoubleSide, shininess:12, specular:0x111111, flatShading:false
+  });
+  const pointMat = new THREE.PointsMaterial({ vertexColors:true, size:currentPointSize(), sizeAttenuation:false });
+  const wireMat = new THREE.MeshBasicMaterial({ vertexColors:true, wireframe:true });
+
+  const file = {
+    id: state.nextId++,
+    name: name,
+    kind: nT ? 'mesh' : 'points',
+    nV: nV, nT: nT,
+    geom: g,
+    geometry: geometry,
+    colorAttr: colorAttr,
+    solid: solid,
+    hasOwnColors: !!g.colors,
+    scale: 1,
+    visible: true,
+    display: nT ? 'surface' : 'points',
+    colorMode: g.colors ? 'file' : 'solid',
+    refId: 0,
+    signed: false,
+    dist: null,
+    stats: null,
+    hist: null,
+    range: {min:0, max:1},
+    cmap: 'turbo',
+    job: 0,
+    progress: 0
+  };
+  file.meshObj = nT ? new THREE.Mesh(geometry, meshMat) : null;
+  file.wireObj = nT ? new THREE.Mesh(geometry, wireMat) : null;
+  file.pointObj = new THREE.Points(geometry, pointMat);
+  if (file.meshObj) root.add(file.meshObj);
+  if (file.wireObj) root.add(file.wireObj);
+  root.add(file.pointObj);
+
+  state.files.push(file);
+  applyTransform(file);
+  updateColors(file);
+  updateVisibility(file);
+}
+
+function removeFile(file){
+  [file.meshObj, file.wireObj, file.pointObj].forEach(function(o){
+    if (!o) return;
+    root.remove(o);
+    if (o.material) o.material.dispose();
+  });
+  file.geometry.dispose();
+  state.files = state.files.filter(function(f){ return f!==file; });
+  state.files.forEach(function(f){
+    if (f.refId===file.id){ f.refId=0; f.dist=null; f.colorMode = f.hasOwnColors?'file':'solid'; updateColors(f); }
+  });
+  rebuildUI();
+  needsRender = true;
+}
+
+function applyTransform(file){
+  [file.meshObj,file.wireObj,file.pointObj].forEach(function(o){ if(o) o.scale.setScalar(file.scale); });
+  file._accel = null; // world-space accel invalid
+  needsRender = true;
+}
+function updateVisibility(file){
+  const v = file.visible;
+  if (file.meshObj) file.meshObj.visible = v && file.display==='surface';
+  if (file.wireObj) file.wireObj.visible = v && file.display==='wireframe';
+  file.pointObj.visible = v && (file.display==='points' || file.kind==='points');
+  if (file.kind==='points') file.pointObj.visible = v;
+  needsRender = true;
+}
+function currentPointSize(){ return parseFloat(document.getElementById('ptsize').value); }
+
+/* ============================================================ coloring */
+function updateColors(file){
+  const c = file.colorAttr.array, n = file.nV;
+  if (file.colorMode==='distance' && file.dist){
+    const cm = CM[file.cmap] || CM.turbo;
+    const lo = file.range.min, hi = file.range.max;
+    const inv = (hi>lo) ? 1/(hi-lo) : 0;
+    const d = file.dist;
+    // 256-entry LUT to avoid a polynomial per vertex
+    const lut = new Float32Array(256*3);
+    for (let i=0;i<256;i++){ const rgb = cm(i/255); lut[i*3]=rgb[0]; lut[i*3+1]=rgb[1]; lut[i*3+2]=rgb[2]; }
+    for (let i=0;i<n;i++){
+      let t = (d[i]-lo)*inv;
+      t = t<0?0:(t>1?1:t);
+      const k = (t*255)|0;
+      c[i*3]=lut[k*3]; c[i*3+1]=lut[k*3+1]; c[i*3+2]=lut[k*3+2];
+    }
+  } else if (file.colorMode==='file' && file.geom.colors){
+    c.set(file.geom.colors);
+  } else {
+    const col = new THREE.Color(file.solid);
+    for (let i=0;i<n;i++){ c[i*3]=col.r; c[i*3+1]=col.g; c[i*3+2]=col.b; }
+  }
+  file.colorAttr.needsUpdate = true;
+  needsRender = true;
+}
+
+/* ============================================================ acceleration + distances */
+function buildAccel(ref){
+  const s = ref.scale;
+  if (ref._accel && ref._accel.scale===s) return ref._accel;
+  const pos = ref.geom.positions;
+  let accel;
+  if (ref.kind==='mesh'){
+    const idxArr = ref.geom.index;
+    const T = idxArr.length/3;
+    const tri = new Float32Array(T*9);
+    const bounds = new Float32Array(T*6);
+    for (let t=0;t<T;t++){
+      for (let k=0;k<3;k++){
+        const v = idxArr[t*3+k];
+        tri[t*9+k*3]   = pos[v*3]*s;
+        tri[t*9+k*3+1] = pos[v*3+1]*s;
+        tri[t*9+k*3+2] = pos[v*3+2]*s;
+      }
+      for (let a=0;a<3;a++){
+        const v0=tri[t*9+a], v1=tri[t*9+3+a], v2=tri[t*9+6+a];
+        bounds[t*6+a]   = Math.min(v0,v1,v2);
+        bounds[t*6+3+a] = Math.max(v0,v1,v2);
+      }
+    }
+    accel = { type:'mesh', scale:s, tri:tri, bvh:makeBVH(T, bounds) };
+  } else {
+    const P = pos.length/3;
+    const pts = new Float32Array(P*3);
+    const bounds = new Float32Array(P*6);
+    for (let i=0;i<P;i++){
+      const x=pos[i*3]*s, y=pos[i*3+1]*s, z=pos[i*3+2]*s;
+      pts[i*3]=x; pts[i*3+1]=y; pts[i*3+2]=z;
+      bounds[i*6]=x; bounds[i*6+1]=y; bounds[i*6+2]=z;
+      bounds[i*6+3]=x; bounds[i*6+4]=y; bounds[i*6+5]=z;
+    }
+    accel = { type:'points', scale:s, pts:pts, bvh:makeBVH(P, bounds) };
+  }
+  ref._accel = accel;
+  return accel;
+}
+
+// build the BVH and record right-child indices
+function makeBVH(n, bounds){
+  const bvh = new BVH(n, bounds);
+  // reconstruct right-child index: children are laid out as [node][left subtree][right subtree]
+  const nNodes = bvh.nLeft.length;
+  const right = new Int32Array(nNodes).fill(-1);
+  (function walk(node){
+    const l = bvh.nLeft[node];
+    if (l<0) return node;           // leaf: last node of this subtree is itself
+    const lastLeft = walk(l);
+    const r = lastLeft+1;
+    right[node] = r;
+    return walk(r);
+  })(0);
+  bvh.rightIdx = right;
+  return bvh;
+}
+
+let activeJobs = 0;
+function computeDistances(file){
+  const ref = fileById(file.refId);
+  const jobId = ++file.job;
+  if (!ref || ref===file){
+    file.dist=null; file.stats=null; file.hist=null;
+    if (file.colorMode==='distance') file.colorMode = file.hasOwnColors?'file':'solid';
+    updateColors(file); rebuildUI(); return;
+  }
+  file.progress = 0;
+  activeJobs++;
+  setStatus("Building BVH for "+ref.name+" …", true);
+  setTimeout(function(){
+    if (jobId!==file.job){ activeJobs--; return; }
+    let accel;
+    try { accel = buildAccel(ref); }
+    catch(err){ setStatus("BVH failed: "+err.message, false); activeJobs--; return; }
+
+    const pos = file.geom.positions, n = file.nV, s = file.scale;
+    const out = new Float32Array(n);
+    const bvh = accel.bvh;
+    const isMesh = accel.type==='mesh';
+    const data = isMesh ? accel.tri : accel.pts;
+    const fn = isMesh ? pointTriangleDistSq : pointPointDistSq;
+    const signed = file.signed && isMesh;
+    let i = 0;
+
+    (function step(){
+      if (jobId!==file.job){ activeJobs--; return; }
+      const t0 = performance.now();
+      while (i<n){
+        const px = pos[i*3]*s, py = pos[i*3+1]*s, pz = pos[i*3+2]*s;
+        let d = Math.sqrt(bvh.nearest(px,py,pz, fn, data));
+        if (signed && bvh.bestPrim>=0){
+          const o = bvh.bestPrim*9;
+          const ax=data[o],ay=data[o+1],az=data[o+2];
+          const ux=data[o+3]-ax, uy=data[o+4]-ay, uz=data[o+5]-az;
+          const vx=data[o+6]-ax, vy=data[o+7]-ay, vz=data[o+8]-az;
+          const nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
+          const ex=px-CPBEST[0], ey=py-CPBEST[1], ez=pz-CPBEST[2];
+          if (nx*ex+ny*ey+nz*ez < 0) d = -d;
+        }
+        out[i] = d;
+        i++;
+        if ((i & 255)===0 && performance.now()-t0 > 16) break;
+      }
+      file.progress = i/n;
+      const bar = document.querySelector('#card-'+file.id+' .prog i');
+      if (bar) bar.style.width = (file.progress*100).toFixed(1)+'%';
+      if (i<n){
+        setStatus("Computing distances · "+file.name+" → "+ref.name+" · "+(file.progress*100).toFixed(0)+"%", true);
+        setTimeout(step, 0);
+      } else {
+        file.dist = out;
+        file.stats = computeStats(out);
+        file.hist = computeHist(out, file.stats);
+        autoRange(file, file.signed ? 'sym99' : 'minmax', true);
+        file.colorMode = 'distance';
+        updateColors(file);
+        activeJobs--;
+        rebuildUI();
+        setStatus(activeJobs>0 ? "Computing …" : ("Done · "+file.name+" → "+ref.name+" · RMS "+fmt(file.stats.rms)), activeJobs>0);
+      }
+    })();
+  }, 10);
+}
+
+function computeStats(d){
+  const n = d.length;
+  let min=Infinity, max=-Infinity, sum=0, sum2=0;
+  for (let i=0;i<n;i++){ const v=d[i]; if(v<min)min=v; if(v>max)max=v; sum+=v; sum2+=v*v; }
+  const stride = Math.max(1, Math.floor(n/200000));
+  const m = Math.floor(n/stride);
+  const samp = new Float32Array(m);
+  for (let i=0,j=0;j<m;i+=stride,j++) samp[j] = Math.abs(d[i]);
+  samp.sort();
+  const q = function(p){ return samp.length? samp[Math.min(samp.length-1, Math.floor(p*(samp.length-1)))] : 0; };
+  return { n:n, min:min, max:max, mean:sum/n, rms:Math.sqrt(sum2/n),
+           median:q(0.5), p95:q(0.95), p99:q(0.99), maxAbs:Math.max(Math.abs(min),Math.abs(max)) };
+}
+function computeHist(d, st){
+  const B = 160;
+  const h = new Float32Array(B);
+  const lo = st.min, hi = st.max;
+  const inv = hi>lo ? (B-1)/(hi-lo) : 0;
+  for (let i=0;i<d.length;i++){
+    let k = ((d[i]-lo)*inv)|0;
+    if (k<0)k=0; if(k>=B)k=B-1;
+    h[k]++;
+  }
+  let mx = 0;
+  for (let i=0;i<B;i++) if (h[i]>mx) mx=h[i];
+  return { bins:h, lo:lo, hi:hi, max:mx };
+}
+function autoRange(file, mode, silent){
+  const st = file.stats; if (!st) return;
+  if (mode==='minmax'){ file.range.min = st.min; file.range.max = st.max; }
+  else if (mode==='p95'){ file.range.min = file.signed?-st.p95:0; file.range.max = st.p95; }
+  else if (mode==='p99'){ file.range.min = file.signed?-st.p99:0; file.range.max = st.p99; }
+  else if (mode==='sym99'){ file.range.min = -st.p99; file.range.max = st.p99; }
+  if (file.range.max<=file.range.min) file.range.max = file.range.min + 1e-6;
+  if (!silent){ updateColors(file); drawRamp(file); rebuildStatsText(file); }
+}
+
+/* ============================================================ view fitting */
+function fitView(){
+  const box = new THREE.Box3();
+  let any = false;
+  state.files.forEach(function(f){
+    if (!f.visible) return;
+    const bb = f.geometry.boundingBox;
+    if (!bb) return;
+    const b = bb.clone();
+    b.min.multiplyScalar(f.scale); b.max.multiplyScalar(f.scale);
+    box.union(b); any = true;
+  });
+  if (!any){ ctrl.target.set(0,0,0); ctrl.radius = 4; applyCamera(); return; }
+  const c = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const r = Math.max(size.x,size.y,size.z) || 1;
+  ctrl.target.copy(c);
+  ctrl.radius = r*1.8;
+  grid.scale.setScalar(r/5 || 1);
+  grid.position.set(c.x, box.min.y, c.z);
+  axes.scale.setScalar(r*0.35);
+  axes.position.copy(box.min);
+  applyCamera();
+  updateHUD();
+}
+function updateHUD(){
+  const lines = [];
+  state.files.forEach(function(f){
+    if (!f.visible) return;
+    lines.push(f.name+"  ×"+f.scale.toPrecision(4)+"  "+(f.kind==='mesh'?(f.nT+" tri"):(f.nV+" pts")));
+  });
+  document.getElementById('hud').innerHTML = lines.join('<br>');
+}
+
+/* ============================================================ number formatting */
+function fmt(v){
+  if (v===undefined||v===null||!isFinite(v)) return "—";
+  const a = Math.abs(v);
+  if (a===0) return "0";
+  if (a<1e-3 || a>=1e5) return v.toExponential(3);
+  return v.toPrecision(5).replace(/\.?0+$/,'');
+}
+
+/* ============================================================ UI */
+const filesEl = document.getElementById('files');
+
+function rebuildUI(){
+  filesEl.innerHTML = '';
+  if (!state.files.length){
+    const d = document.createElement('section');
+    d.innerHTML = '<div class="lbl">Objects</div><div style="color:var(--ink-faint);font-size:11px;margin-top:8px">Nothing loaded yet.</div>';
+    filesEl.appendChild(d);
+    updateHUD();
+    return;
+  }
+  state.files.forEach(function(f){ filesEl.appendChild(buildCard(f)); });
+  state.files.forEach(function(f){ if (f.dist) drawRamp(f); });
+  updateHUD();
+}
+
+function buildCard(file){
+  const card = document.createElement('div');
+  card.className = 'card' + (file.visible?'':' hidden-obj');
+  card.id = 'card-'+file.id;
+
+  const others = state.files.filter(function(f){ return f.id!==file.id; });
+
+  const head = document.createElement('div');
+  head.className = 'row';
+  head.innerHTML =
+    '<input type="checkbox" class="ck-vis" '+(file.visible?'checked':'')+' title="Show in viewport">' +
+    '<span class="swatch" style="background:#'+('000000'+file.solid.toString(16)).slice(-6)+'"></span>' +
+    '<h2 class="grow" title="'+file.name+'">'+file.name+'</h2>' +
+    '<button class="ghost btn-solo" title="Show only this">Solo</button>' +
+    '<button class="ghost danger btn-del" title="Remove">✕</button>';
+  card.appendChild(head);
+
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.textContent = (file.kind==='mesh' ? 'mesh · '+file.nT.toLocaleString()+' tri · ' : 'cloud · ') +
+                     file.nV.toLocaleString()+' vtx' + (file.hasOwnColors?' · rgb':'');
+  card.appendChild(meta);
+
+  // ---- scale
+  const sc = document.createElement('div');
+  sc.className = 'sub';
+  sc.innerHTML = '<span class="lbl">Scale factor</span>' +
+    '<div class="scalebox"><input type="number" class="in-scale" step="any" value="'+file.scale+'">' +
+    '<input type="range" class="rg-scale" min="-3" max="3" step="0.001" value="'+Math.log10(file.scale)+'" class="grow"></div>';
+  card.appendChild(sc);
+
+  // ---- display
+  const dis = document.createElement('div');
+  dis.className = 'sub';
+  let dopt = '';
+  if (file.kind==='mesh'){
+    dopt = '<option value="surface">Surface</option><option value="wireframe">Wireframe</option><option value="points">Vertices</option>';
+  } else {
+    dopt = '<option value="points">Points</option>';
+  }
+  dis.innerHTML = '<span class="lbl">Draw as / color by</span><div class="row">' +
+    '<select class="sel-display grow">'+dopt+'</select>' +
+    '<select class="sel-cmode grow">' +
+      '<option value="solid">Solid color</option>' +
+      (file.hasOwnColors?'<option value="file">File colors</option>':'') +
+      (file.dist?'<option value="distance">Distance</option>':'') +
+    '</select></div>';
+  card.appendChild(dis);
+
+  // ---- reference
+  const ref = document.createElement('div');
+  ref.className = 'sub';
+  let ropt = '<option value="0">— none —</option>';
+  others.forEach(function(o){
+    ropt += '<option value="'+o.id+'">'+o.name+' ('+(o.kind==='mesh'?'triangles':'points')+')</option>';
+  });
+  ref.innerHTML = '<span class="lbl">Distance to</span>' +
+    '<select class="sel-ref">'+ropt+'</select>' +
+    '<div class="row" style="margin-top:7px">' +
+      '<label class="ck grow"><input type="checkbox" class="ck-signed" '+(file.signed?'checked':'')+'> Signed (mesh reference)</label>' +
+      '<button class="ghost btn-calc">Recompute</button>' +
+    '</div>' +
+    '<div class="prog"><i style="width:'+(file.progress*100)+'%"></i></div>';
+  card.appendChild(ref);
+
+  // ---- colormap + ramp
+  if (file.dist && file.stats){
+    const cmp = document.createElement('div');
+    cmp.className = 'sub';
+    let copt = '';
+    Object.keys(CM_NAMES).forEach(function(k){ copt += '<option value="'+k+'">'+CM_NAMES[k]+'</option>'; });
+    cmp.innerHTML =
+      '<div class="row"><span class="lbl grow">Colormap range</span>' +
+        '<button class="ghost btn-auto" data-mode="minmax">min–max</button>' +
+        '<button class="ghost btn-auto" data-mode="p95">p95</button>' +
+        '<button class="ghost btn-auto" data-mode="p99">p99</button>' +
+      '</div>' +
+      '<select class="sel-cmap" style="margin-top:7px">'+copt+'</select>' +
+      '<div class="ramp-wrap"><canvas class="ramp" width="640" height="108"></canvas></div>' +
+      '<div class="ramp-nums"><input type="text" class="in-lo num" value="'+fmt(file.range.min)+'">' +
+      '<span class="lbl" style="align-self:center">clamp</span>' +
+      '<input type="text" class="in-hi num" value="'+fmt(file.range.max)+'"></div>' +
+      '<div class="stats"></div>';
+    card.appendChild(cmp);
+  }
+
+  card.appendChild(Object.assign(document.createElement('div'), {className:'divider'}));
+
+  /* ---- wire up ---- */
+  const q = function(sel){ return card.querySelector(sel); };
+
+  q('.ck-vis').addEventListener('change', function(e){
+    file.visible = e.target.checked; updateVisibility(file);
+    card.classList.toggle('hidden-obj', !file.visible); updateHUD();
+  });
+  q('.btn-solo').addEventListener('click', function(){
+    state.files.forEach(function(f){ f.visible = (f===file); updateVisibility(f); });
+    rebuildUI(); fitView();
+  });
+  q('.btn-del').addEventListener('click', function(){ removeFile(file); });
+
+  const inScale = q('.in-scale'), rgScale = q('.rg-scale');
+  function setScale(v, fromSlider){
+    if (!isFinite(v) || v<=0) return;
+    file.scale = v;
+    if (!fromSlider) rgScale.value = Math.max(-3, Math.min(3, Math.log10(v)));
+    inScale.value = fromSlider ? (+v.toPrecision(6)) : inScale.value;
+    applyTransform(file);
+    updateHUD();
+    // any distance involving this object is now stale
+    if (file.refId) scheduleCompute(file);
+    state.files.forEach(function(f){ if (f.refId===file.id) scheduleCompute(f); });
+  }
+  inScale.addEventListener('change', function(){ setScale(parseFloat(inScale.value), false); });
+  rgScale.addEventListener('input', function(){ setScale(Math.pow(10, parseFloat(rgScale.value)), true); });
+
+  const selDisplay = q('.sel-display'); selDisplay.value = file.display;
+  selDisplay.addEventListener('change', function(){ file.display = selDisplay.value; updateVisibility(file); });
+
+  const selCmode = q('.sel-cmode'); selCmode.value = file.colorMode;
+  selCmode.addEventListener('change', function(){ file.colorMode = selCmode.value; updateColors(file); });
+
+  const selRef = q('.sel-ref'); selRef.value = String(file.refId);
+  selRef.addEventListener('change', function(){
+    file.refId = parseInt(selRef.value,10);
+    if (file.refId) computeDistances(file);
+    else { file.dist=null; file.stats=null; file.colorMode = file.hasOwnColors?'file':'solid'; updateColors(file); rebuildUI(); }
+  });
+  q('.ck-signed').addEventListener('change', function(e){
+    file.signed = e.target.checked;
+    if (file.refId) computeDistances(file);
+  });
+  q('.btn-calc').addEventListener('click', function(){ if (file.refId) computeDistances(file); });
+
+  if (file.dist && file.stats){
+    const selCmap = q('.sel-cmap'); selCmap.value = file.cmap;
+    selCmap.addEventListener('change', function(){ file.cmap = selCmap.value; updateColors(file); drawRamp(file); });
+    card.querySelectorAll('.btn-auto').forEach(function(b){
+      b.addEventListener('click', function(){
+        autoRange(file, b.getAttribute('data-mode'), false);
+        q('.in-lo').value = fmt(file.range.min); q('.in-hi').value = fmt(file.range.max);
+      });
+    });
+    const lo = q('.in-lo'), hi = q('.in-hi');
+    function commit(){
+      const a = parseFloat(lo.value), b = parseFloat(hi.value);
+      if (isFinite(a)) file.range.min = a;
+      if (isFinite(b)) file.range.max = b;
+      if (file.range.max<=file.range.min) file.range.max = file.range.min+1e-9;
+      updateColors(file); drawRamp(file);
+      lo.value = fmt(file.range.min); hi.value = fmt(file.range.max);
+    }
+    lo.addEventListener('change', commit); hi.addEventListener('change', commit);
+    wireRamp(file, card);
+    rebuildStatsText(file, card);
+  }
+  return card;
+}
+
+function rebuildStatsText(file, card){
+  card = card || document.getElementById('card-'+file.id);
+  if (!card) return;
+  const el = card.querySelector('.stats');
+  if (!el || !file.stats) return;
+  const s = file.stats;
+  el.innerHTML =
+    '<span>min <b>'+fmt(s.min)+'</b></span><span>max <b>'+fmt(s.max)+'</b></span>' +
+    '<span>mean <b>'+fmt(s.mean)+'</b></span><span>rms <b>'+fmt(s.rms)+'</b></span>' +
+    '<span>median|·| <b>'+fmt(s.median)+'</b></span><span>p95|·| <b>'+fmt(s.p95)+'</b></span>';
+}
+
+/* ---- the ramp: colorbar + histogram + draggable clamp handles ---- */
+function rampDomain(file){
+  const s = file.stats;
+  let d0 = Math.min(s.min, file.range.min), d1 = Math.max(s.max, file.range.max);
+  if (d1<=d0) d1 = d0+1e-9;
+  const pad = (d1-d0)*0.04;
+  return [d0-pad, d1+pad];
+}
+function drawRamp(file){
+  const card = document.getElementById('card-'+file.id);
+  if (!card) return;
+  const cv = card.querySelector('canvas.ramp');
+  if (!cv || !file.stats) return;
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const barH = 30, histH = 52, gap = 6;
+  ctx.clearRect(0,0,W,H);
+
+  const dom = rampDomain(file);
+  const cm = CM[file.cmap] || CM.turbo;
+  const lo = file.range.min, hi = file.range.max;
+  const inv = hi>lo ? 1/(hi-lo) : 0;
+
+  // histogram (top)
+  const h = file.hist;
+  if (h && h.max>0){
+    ctx.fillStyle = '#232a33';
+    const B = h.bins.length;
+    for (let x=0;x<W;x++){
+      const v = dom[0] + (x/(W-1))*(dom[1]-dom[0]);
+      let k = h.hi>h.lo ? Math.floor((v-h.lo)/(h.hi-h.lo)*(B-1)) : 0;
+      if (k<0 || k>B-1){ continue; }
+      const bh = Math.max(1, Math.round(Math.sqrt(h.bins[k]/h.max)*histH));
+      ctx.fillRect(x, histH-bh, 1, bh);
+    }
+  }
+  // colorbar with clamping made visible
+  for (let x=0;x<W;x++){
+    const v = dom[0] + (x/(W-1))*(dom[1]-dom[0]);
+    let t = (v-lo)*inv; t = t<0?0:(t>1?1:t);
+    const c = cm(t);
+    ctx.fillStyle = 'rgb('+((c[0]*255)|0)+','+((c[1]*255)|0)+','+((c[2]*255)|0)+')';
+    ctx.fillRect(x, histH+gap, 1, barH);
+  }
+  // dim the clamped regions
+  const xOf = function(v){ return (v-dom[0])/(dom[1]-dom[0])*(W-1); };
+  ctx.fillStyle = 'rgba(11,13,17,0.55)';
+  const xl = xOf(lo), xh = xOf(hi);
+  if (xl>0) ctx.fillRect(0, histH+gap, xl, barH);
+  if (xh<W) ctx.fillRect(xh, histH+gap, W-xh, barH);
+  // handles
+  [xl,xh].forEach(function(x){
+    ctx.fillStyle = '#dbe0e8';
+    ctx.fillRect(Math.max(0,Math.min(W-3,x-1.5)), histH+gap-5, 3, barH+10);
+  });
+  // domain ticks
+  ctx.fillStyle = '#5d6673';
+  ctx.font = '11px ui-monospace, monospace';
+  ctx.textBaseline = 'top';
+  ctx.fillText(fmt(dom[0]), 2, histH+gap+barH+6);
+  const tx = fmt(dom[1]);
+  ctx.fillText(tx, W - ctx.measureText(tx).width - 2, histH+gap+barH+6);
+}
+function wireRamp(file, card){
+  const cv = card.querySelector('canvas.ramp');
+  if (!cv) return;
+  let grabbing = null;
+  function valAt(e){
+    const r = cv.getBoundingClientRect();
+    const t = Math.max(0, Math.min(1, (e.clientX-r.left)/r.width));
+    const dom = rampDomain(file);
+    return dom[0] + t*(dom[1]-dom[0]);
+  }
+  cv.addEventListener('pointerdown', function(e){
+    cv.setPointerCapture(e.pointerId);
+    const v = valAt(e);
+    grabbing = Math.abs(v-file.range.min) < Math.abs(v-file.range.max) ? 'min' : 'max';
+    move(e);
+  });
+  function move(e){
+    if (!grabbing) return;
+    const v = valAt(e);
+    if (grabbing==='min') file.range.min = Math.min(v, file.range.max-1e-9);
+    else file.range.max = Math.max(v, file.range.min+1e-9);
+    card.querySelector('.in-lo').value = fmt(file.range.min);
+    card.querySelector('.in-hi').value = fmt(file.range.max);
+    updateColors(file); drawRamp(file);
+  }
+  cv.addEventListener('pointermove', move);
+  cv.addEventListener('pointerup', function(){ grabbing=null; });
+  cv.addEventListener('pointercancel', function(){ grabbing=null; });
+}
+
+/* debounced recompute on scale changes */
+const timers = {};
+function scheduleCompute(file){
+  clearTimeout(timers[file.id]);
+  timers[file.id] = setTimeout(function(){ if (file.refId) computeDistances(file); }, 350);
+}
+
+/* ============================================================ global controls */
+document.getElementById('btn-fit').addEventListener('click', fitView);
+document.getElementById('ptsize').addEventListener('input', function(e){
+  const v = parseFloat(e.target.value);
+  document.getElementById('ptsize-v').textContent = v.toFixed(1);
+  state.files.forEach(function(f){ f.pointObj.material.size = v; });
+  needsRender = true;
+});
+document.getElementById('ck-grid').addEventListener('change', function(e){ grid.visible=e.target.checked; needsRender=true; });
+document.getElementById('ck-axes').addEventListener('change', function(e){ axes.visible=e.target.checked; needsRender=true; });
+document.getElementById('ck-persp').addEventListener('change', function(e){ usePersp=e.target.checked; resize(); });
+
+rebuildUI();
+resize();
+applyCamera();
+})();
+</script>
+</body>
+</html>
