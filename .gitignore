@@ -1,3 +1,7 @@
+# Assets
+assets/assets
+assets/smplx
+
 # Python bytecode
 __pycache__/
 *.py[cod]
@@ -85,6 +89,7 @@ dmypy.json
 # IDE
 .vscode/
 .claude/
+.idea/
 
 # Project-specific: Model weights and checkpoints
 *.pt
@@ -119,3 +124,8 @@ debug/
 **/.dist_test
 sandbox*
 *.sh
+
+# Output folders
+out/
+out_pcl/
+pointclouds/
