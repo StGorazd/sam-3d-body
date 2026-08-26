@@ -9,6 +9,7 @@ from pytorch3d.renderer import FoVPerspectiveCameras, RasterizationSettings, Mes
 import torch
 import rerun as rr
 import trimesh
+from scipy.spatial import cKDTree
 from tqdm import tqdm
 from mhr.mhr import MHR
 from pathlib import Path
@@ -253,14 +254,63 @@ class SinglePoseMHR(torch.nn.Module):
         }
         torch.save(params, path)
 
-    def save_obj(self, path: str, vertices: torch.Tensor):
+    def point_cloud_vertex_colors(self, vertices: torch.Tensor,
+                                  max_dist: float = 0.02,
+                                  unseen=(153, 153, 153)):
+        """Closest point-cloud color per vertex, matching joint_optim.py's policy."""
+        if vertices.dim() == 3:
+            vertices = vertices[0]
+
+        mesh_vertices = vertices.detach().cpu().numpy()
+        cloud_points = self.target_points[0].detach().cpu().numpy()
+        cloud_colors = np.asarray(self.colors)
+
+        colors = np.tile(np.asarray(unseen, dtype=np.float64), (len(mesh_vertices), 1))
+        if (cloud_colors.ndim != 2 or
+                cloud_colors.shape[0] != cloud_points.shape[0] or
+                cloud_colors.shape[1] < 3):
+            return colors.astype(np.uint8), np.zeros(len(mesh_vertices), dtype=bool)
+
+        dist, idx = cKDTree(cloud_points).query(mesh_vertices)
+        seen = np.isfinite(dist) & (dist < max_dist)
+        colors[seen] = cloud_colors[idx[seen], :3]
+        return np.clip(np.rint(colors), 0, 255).astype(np.uint8), seen
+
+    def default_pose_vertices(self):
+        """Fitted identity in the default joint pose, preserving rig scaling."""
+        parameter_transform = self.mhr_model.character.parameter_transform
+        pose_count = int(parameter_transform.pose_parameters.sum())
+        scale_count = int(parameter_transform.scaling_parameters.sum())
+        joint_angle_count = pose_count - 6
+        scale_start = 6 + joint_angle_count
+        scale_end = scale_start + scale_count
+
+        if joint_angle_count < 0 or scale_end != self.pose.shape[1]:
+            raise ValueError(
+                "Unexpected MHR parameter layout: "
+                f"6 global + {joint_angle_count} joint-angle + {scale_count} scaling "
+                f"!= {self.pose.shape[1]}"
+            )
+
+        default_pose = torch.zeros_like(self.pose)
+        default_pose[:, scale_start:scale_end] = self.pose[:, scale_start:scale_end]
+
+        with torch.no_grad():
+            vertices, _ = self.mhr_model(
+                identity_coeffs=self.identity,
+                model_parameters=default_pose,
+                face_expr_coeffs=self.expr
+            )
+        return vertices / 100
+
+    def save_obj(self, path: str, vertices: torch.Tensor, vertex_colors=None):
         if vertices.dim() == 3:
             vertices = vertices[0]
 
         v = vertices.detach().cpu().numpy()
         f = self.faces[0].detach().cpu().numpy()
 
-        mesh = trimesh.Trimesh(vertices=v, faces=f)
+        mesh = trimesh.Trimesh(vertices=v, faces=f, vertex_colors=vertex_colors)
         mesh.export(path)
 
     def save_front_render(self, path: str, vertices: torch.Tensor, image_width: int = 768, image_height: int = 1300):
@@ -435,8 +485,8 @@ class SinglePoseMHR(torch.nn.Module):
 if __name__ == '__main__':
     root = Path("/home/stg/Dev/research_batch_2026")
     out_root = Path("./out")
-    process_single_sample = False
-    single_sample_name = "/home/stg/Dev/research_batch_2026/S3APP-100731-M-184_347"
+    process_single_sample = True
+    single_sample_name = "/home/stg/Downloads/mini_scanovaci_den/brana/S3APP-101542-M-170_533"
 
     if process_single_sample:
         sources = [root / single_sample_name]
@@ -445,7 +495,7 @@ if __name__ == '__main__':
     else:
         sources = root.iterdir()
         progress_desc = "Processing avatars"
-        progress_total = 100
+        progress_total = 1
 
     to_process = progress_total
     pbar = tqdm(sources, desc=progress_desc, total=progress_total)
@@ -525,7 +575,12 @@ if __name__ == '__main__':
 
         final_loss = loss.item()
         model.save_parameters(str(target_dir / "mhr_params.pt"))
-        model.save_obj(str(target_dir / "mhr_model.obj"), vertices)
+        vertex_colors, colored = model.point_cloud_vertex_colors(vertices)
+        model.save_obj(str(target_dir / "mhr_model.obj"), vertices, vertex_colors)
+        model.save_obj(str(target_dir / "mhr_model_default.obj"),
+                       model.default_pose_vertices(),
+                       vertex_colors)
+        print(f"Colored {100 * colored.mean():0.0f}% of mesh vertices from the point cloud")
         model.save_front_render(str(target_dir / "front.png"), vertices)
         model.save_final_rrd(str(target_dir / "final_fit.rrd"), vertices)
         model.save_json_data(str(target_dir / "data.json"),
