@@ -1,3 +1,4 @@
+import argparse
 import cv2
 import json
 import numpy as np
@@ -14,9 +15,58 @@ from tqdm import tqdm
 from mhr.mhr import MHR
 from pathlib import Path
 
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Fit a single MHR body model to a processed point cloud.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--input-dir",
+        type=Path,
+        required=True,
+        help="directory containing the sample directories",
+    )
+    parser.add_argument(
+        "--sample",
+        type=Path,
+        help="sample directory relative to --input-dir; enables single-sample processing",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("./out"),
+        help="directory in which fitted sample directories are created",
+    )
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=375,
+        help="number of optimization iterations",
+    )
+    parser.add_argument(
+        "--trim-keep-ratio",
+        type=float,
+        default=0.90,
+        help="fraction of the smallest point distances retained by the trimmed loss",
+    )
+
+    args = parser.parse_args()
+    if args.sample is not None and args.sample.is_absolute():
+        parser.error("--sample must be relative to --input-dir")
+    if args.iterations <= 0:
+        parser.error("--iterations must be greater than zero")
+    if not 0.0 < args.trim_keep_ratio <= 1.0:
+        parser.error("--trim-keep-ratio must be in the range (0, 1]")
+    return args
+
+
 class SinglePoseMHR(torch.nn.Module):
-    def __init__(self, fname, single_sample: bool, *args, **kwargs):
+    def __init__(self, fname, single_sample: bool, trim_keep_ratio: float = 0.90,
+                 *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        self.trim_keep_ratio = trim_keep_ratio
 
         self.mhr_model = MHR.from_files(
             folder=Path("assets/assets"),
@@ -202,7 +252,10 @@ class SinglePoseMHR(torch.nn.Module):
 
 
         pcl_loss, raw_dists = self.knn_point_to_points_loss(
-            self.target_points, sampled_points, keep_ratio=0.90, use_robust=True
+            self.target_points,
+            sampled_points,
+            keep_ratio=self.trim_keep_ratio,
+            use_robust=True,
         )
 
         # loss_time = self._end_timer(t4)
@@ -483,13 +536,14 @@ class SinglePoseMHR(torch.nn.Module):
 
 
 if __name__ == '__main__':
-    root = Path("/home/stg/Dev/research_batch_2026")
-    out_root = Path("./out")
-    process_single_sample = True
-    single_sample_name = "/home/stg/Downloads/mini_scanovaci_den/brana/S3APP-101542-M-170_533"
+    args = parse_args()
+    root = args.input_dir
+    out_root = args.output_dir
+    out_root.mkdir(parents=True, exist_ok=True)
+    process_single_sample = args.sample is not None
 
     if process_single_sample:
-        sources = [root / single_sample_name]
+        sources = [root / args.sample]
         progress_desc = "Processing single avatar"
         progress_total = 1
     else:
@@ -511,7 +565,11 @@ if __name__ == '__main__':
 
         point_cloud_path = src_data / "body_processed.ply"
 
-        model = SinglePoseMHR(point_cloud_path, process_single_sample)
+        model = SinglePoseMHR(
+            point_cloud_path,
+            process_single_sample,
+            trim_keep_ratio=args.trim_keep_ratio,
+        )
         model.cuda()
 
         optimizer = torch.optim.Adam(model.parameters(), lr=0.025)
@@ -523,7 +581,7 @@ if __name__ == '__main__':
         #     min_lr=1e-5
         # )
 
-        num_of_iteration = 375
+        num_of_iteration = args.iterations
         for i in range(num_of_iteration):
             if i < 75:
                 samples = 3_000
